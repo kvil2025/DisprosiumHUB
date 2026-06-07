@@ -1178,15 +1178,150 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
-    .n8n-frame {
-      width: 100%;
-      height: calc(100vh - 140px);
-      border: 1px solid var(--border);
+    .n8n-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+    }
+    .n8n-status .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .n8n-status .dot.online { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+    .n8n-status .dot.offline { background: var(--accent-red); }
+    .n8n-status .dot.warning { background: var(--accent-yellow); }
+
+    .n8n-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .n8n-panel {
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border);
       border-radius: var(--radius-lg);
+      padding: 20px;
+    }
+
+    .n8n-panel-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .n8n-wf-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: calc(100vh - 280px);
+      overflow-y: auto;
+    }
+
+    .n8n-wf-card {
       background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.2s;
+    }
+    .n8n-wf-card:hover {
+      border-color: var(--accent);
+      transform: translateX(4px);
+    }
+
+    .n8n-wf-info { flex: 1; }
+    .n8n-wf-name { font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; }
+    .n8n-wf-meta { font-size: 0.7rem; color: var(--text-secondary); display: flex; gap: 12px; }
+
+    .n8n-wf-badge {
+      font-size: 0.65rem;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .n8n-wf-badge.active { background: rgba(0,255,136,0.12); color: var(--accent-green); }
+    .n8n-wf-badge.inactive { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
+
+    .n8n-toggle {
+      width: 36px; height: 20px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.3s;
+      margin-left: 12px;
+    }
+    .n8n-toggle.on { background: rgba(0,255,136,0.3); }
+    .n8n-toggle::after {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--text-secondary);
+      top: 2px; left: 2px;
+      transition: all 0.3s;
+    }
+    .n8n-toggle.on::after {
+      left: 18px;
+      background: var(--accent-green);
+    }
+
+    .n8n-exec-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: calc(100vh - 280px);
+      overflow-y: auto;
+    }
+
+    .n8n-exec-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 0.78rem;
+    }
+    .n8n-exec-icon { font-size: 1rem; }
+    .n8n-exec-name { flex: 1; font-weight: 500; }
+    .n8n-exec-time { color: var(--text-secondary); font-size: 0.7rem; }
+
+    .n8n-setup-card {
+      background: var(--bg-secondary);
+      border: 1px solid rgba(255,204,0,0.2);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      text-align: center;
+    }
+    .n8n-setup-card h3 { margin-bottom: 12px; }
+    .n8n-setup-card p { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.6; }
+    .n8n-setup-card code {
+      background: rgba(0,242,255,0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: var(--accent);
+    }
+
+    @media (max-width: 768px) {
+      .n8n-grid { grid-template-columns: 1fr; }
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -2285,18 +2420,24 @@
       <!-- ═══════ N8N ═══════ -->
       <section class="section" id="section-n8n">
         <div class="section-header">
-          <h2>n8n</h2>
-          <p class="section-desc">Automatización de workflows</p>
+          <h2>🔗 n8n Automation</h2>
+          <p class="section-desc">Workflows y ejecuciones recientes</p>
         </div>
 
         <div class="n8n-toolbar">
-          <span style="font-size:0.85rem;color:var(--text-secondary);">Instancia de n8n embebida</span>
-          <button class="btn btn-primary" onclick="window.open(getN8nUrl(),'_blank')">
-            ↗ Abrir en nueva pestaña
-          </button>
+          <div class="n8n-status" id="n8n-conn-status">
+            <div class="dot offline"></div>
+            <span>Verificando conexión...</span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="loadN8n()" style="font-size:0.75rem;">🔄 Actualizar</button>
+            <button class="btn btn-primary" onclick="window.open(getN8nUrl(),'_blank')" style="font-size:0.75rem;">↗ Abrir n8n</button>
+          </div>
         </div>
 
-        <iframe class="n8n-frame" id="n8n-iframe" src="about:blank" title="n8n"></iframe>
+        <div id="n8n-content">
+          <div style="text-align:center;padding:40px;color:var(--text-secondary);">Cargando...</div>
+        </div>
       </section>
 
       <!-- ═══════ ORCHESTRATOR ═══════ -->
@@ -3774,13 +3915,132 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       N8N
+       N8N PANEL
     ═══════════════════════════════════════════════════════════════ */
-    function loadN8n() {
-      const iframe = document.getElementById('n8n-iframe');
-      const url = getN8nUrl();
-      if (iframe.src !== url) {
-        iframe.src = url;
+    async function loadN8n() {
+      const statusEl = document.getElementById('n8n-conn-status');
+      const contentEl = document.getElementById('n8n-content');
+
+      // 1. Check status
+      try {
+        const resp = await apiFetch('/api/n8n/status');
+        const status = await resp.json();
+
+        if (!status.available) {
+          statusEl.innerHTML = `<div class="dot offline"></div><span>Offline — ${status.error || 'No conectado'}</span>`;
+          contentEl.innerHTML = `<div class="n8n-setup-card">
+            <h3>⚠️ n8n no disponible</h3>
+            <p>${status.error || 'No se pudo conectar a n8n. Verifica que esté corriendo en el puerto 5678.'}</p>
+            <button class="btn btn-primary" onclick="window.open(getN8nUrl(),'_blank')">↗ Abrir n8n</button>
+          </div>`;
+          return;
+        }
+
+        if (!status.api_key_set) {
+          statusEl.innerHTML = `<div class="dot warning"></div><span>Conectado — API Key requerida</span>`;
+          contentEl.innerHTML = `<div class="n8n-setup-card">
+            <h3>🔑 Configurar API Key</h3>
+            <p>n8n está corriendo pero necesita una API Key para que DisprosiumHUB pueda gestionar workflows.</p>
+            <p><b>Pasos:</b></p>
+            <p>1. Abre n8n → <b>Settings</b> → <b>API</b> → <b>Create API Key</b></p>
+            <p>2. Copia la key y agrégala a tu archivo <code>.env</code>:</p>
+            <p><code>N8N_API_KEY=tu-api-key-aquí</code></p>
+            <p>3. Reconstruye el contenedor: <code>docker compose up -d --build</code></p>
+            <br>
+            <button class="btn btn-primary" onclick="window.open(getN8nUrl() + '/settings/api','_blank')">↗ Ir a n8n Settings > API</button>
+          </div>`;
+          return;
+        }
+
+        statusEl.innerHTML = `<div class="dot online"></div><span>Conectado</span>`;
+
+        // 2. Load workflows and executions in parallel
+        const [wfResp, exResp] = await Promise.all([
+          apiFetch('/api/n8n/workflows'),
+          apiFetch('/api/n8n/executions?limit=15')
+        ]);
+
+        const wfData = wfResp.ok ? await wfResp.json() : { workflows: [] };
+        const exData = exResp.ok ? await exResp.json() : { executions: [] };
+
+        // Build workflows HTML
+        let wfHtml = '';
+        if (wfData.workflows.length === 0) {
+          wfHtml = '<div style="text-align:center;padding:20px;color:var(--text-secondary);">No hay workflows. Crea uno en n8n.</div>';
+        } else {
+          for (const wf of wfData.workflows) {
+            const badgeClass = wf.active ? 'active' : 'inactive';
+            const badgeText = wf.active ? 'ACTIVO' : 'INACTIVO';
+            const toggleClass = wf.active ? 'on' : '';
+            const updatedDate = wf.updatedAt ? new Date(wf.updatedAt).toLocaleDateString('es-CL') : '';
+            wfHtml += `
+              <div class="n8n-wf-card">
+                <div class="n8n-wf-info">
+                  <div class="n8n-wf-name">${wf.name}</div>
+                  <div class="n8n-wf-meta">
+                    <span>🔧 ${wf.nodes} nodos</span>
+                    ${wf.tags.length ? '<span>🏷️ ' + wf.tags.join(', ') + '</span>' : ''}
+                    ${updatedDate ? '<span>📅 ' + updatedDate + '</span>' : ''}
+                  </div>
+                </div>
+                <span class="n8n-wf-badge ${badgeClass}">${badgeText}</span>
+                <button class="n8n-toggle ${toggleClass}" onclick="toggleN8nWorkflow('${wf.id}')" title="${wf.active ? 'Desactivar' : 'Activar'}"></button>
+              </div>`;
+          }
+        }
+
+        // Build executions HTML
+        let exHtml = '';
+        if (exData.executions.length === 0) {
+          exHtml = '<div style="text-align:center;padding:20px;color:var(--text-secondary);">Sin ejecuciones recientes</div>';
+        } else {
+          for (const ex of exData.executions) {
+            const icon = ex.status === 'success' ? '✅' : ex.status === 'error' ? '❌' : ex.status === 'running' ? '🔄' : '⏳';
+            const time = ex.startedAt ? new Date(ex.startedAt).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+            let duration = '';
+            if (ex.startedAt && ex.stoppedAt) {
+              const ms = new Date(ex.stoppedAt) - new Date(ex.startedAt);
+              duration = ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's';
+            }
+            exHtml += `
+              <div class="n8n-exec-item">
+                <span class="n8n-exec-icon">${icon}</span>
+                <span class="n8n-exec-name">${ex.workflowName}</span>
+                ${duration ? '<span style="color:var(--accent);font-size:0.7rem;">' + duration + '</span>' : ''}
+                <span class="n8n-exec-time">${time}</span>
+              </div>`;
+          }
+        }
+
+        contentEl.innerHTML = `
+          <div class="n8n-grid">
+            <div class="n8n-panel">
+              <div class="n8n-panel-title">📋 Workflows <span style="color:var(--text-secondary);font-weight:400;">(${wfData.workflows.length})</span></div>
+              <div class="n8n-wf-list">${wfHtml}</div>
+            </div>
+            <div class="n8n-panel">
+              <div class="n8n-panel-title">📊 Ejecuciones recientes</div>
+              <div class="n8n-exec-list">${exHtml}</div>
+            </div>
+          </div>`;
+
+      } catch (e) {
+        statusEl.innerHTML = `<div class="dot offline"></div><span>Error de conexión</span>`;
+        contentEl.innerHTML = `<div class="n8n-setup-card"><h3>❌ Error</h3><p>${e.message}</p></div>`;
+      }
+    }
+
+    async function toggleN8nWorkflow(workflowId) {
+      try {
+        const resp = await apiFetch(`/api/n8n/workflows/${workflowId}/activate`, { method: 'POST' });
+        if (resp.ok) {
+          loadN8n(); // Refresh
+        } else {
+          const err = await resp.json();
+          alert(err.detail || 'Error toggling workflow');
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
       }
     }
 

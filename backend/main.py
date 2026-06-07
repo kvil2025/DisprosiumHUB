@@ -523,6 +523,115 @@ async def docker_action(
 
 
 # ---------------------------------------------------------------------------
+# n8n Integration API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/n8n/status")
+async def n8n_status(user: dict = Depends(get_current_user)):
+    """Check n8n connectivity and return basic info."""
+    if not N8N_BASE_URL:
+        return {"available": False, "error": "N8N_BASE_URL not configured"}
+    try:
+        headers = {}
+        if N8N_API_KEY:
+            headers["X-N8N-API-KEY"] = N8N_API_KEY
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{N8N_BASE_URL}/api/v1/workflows?limit=1", headers=headers)
+            if resp.status_code == 200:
+                return {"available": True, "url": N8N_BASE_URL, "api_key_set": bool(N8N_API_KEY)}
+            elif resp.status_code == 401:
+                return {"available": True, "url": N8N_BASE_URL, "api_key_set": False, "error": "API key required. Go to n8n Settings > API > Create API Key."}
+            else:
+                return {"available": False, "error": f"n8n responded {resp.status_code}"}
+    except Exception as e:
+        return {"available": False, "error": f"Cannot connect to n8n: {e}"}
+
+
+@app.get("/api/n8n/workflows")
+async def n8n_list_workflows(user: dict = Depends(get_current_user)):
+    """List all n8n workflows with status."""
+    if not N8N_API_KEY:
+        raise HTTPException(status_code=400, detail="N8N_API_KEY not configured. Go to n8n Settings > API > Create API Key, then add it to your .env file.")
+    try:
+        headers = {"X-N8N-API-KEY": N8N_API_KEY}
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{N8N_BASE_URL}/api/v1/workflows", headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=f"n8n API error: {resp.text[:200]}")
+            data = resp.json()
+            workflows = []
+            for w in data.get("data", []):
+                workflows.append({
+                    "id": w.get("id"),
+                    "name": w.get("name", "Unnamed"),
+                    "active": w.get("active", False),
+                    "createdAt": w.get("createdAt", ""),
+                    "updatedAt": w.get("updatedAt", ""),
+                    "tags": [t.get("name", "") for t in w.get("tags", [])],
+                    "nodes": len(w.get("nodes", [])),
+                })
+            return {"workflows": workflows, "total": len(workflows)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/n8n/workflows/{workflow_id}/activate")
+async def n8n_toggle_workflow(workflow_id: str, user: dict = Depends(get_current_user)):
+    """Toggle a workflow active/inactive."""
+    if not N8N_API_KEY:
+        raise HTTPException(status_code=400, detail="N8N_API_KEY not configured")
+    try:
+        headers = {"X-N8N-API-KEY": N8N_API_KEY, "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=10) as client:
+            # Get current state
+            resp = await client.get(f"{N8N_BASE_URL}/api/v1/workflows/{workflow_id}", headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=404, detail="Workflow not found")
+            wf = resp.json()
+            new_active = not wf.get("active", False)
+            endpoint = "activate" if new_active else "deactivate"
+            resp2 = await client.post(f"{N8N_BASE_URL}/api/v1/workflows/{workflow_id}/{endpoint}", headers=headers)
+            if resp2.status_code in (200, 201):
+                return {"id": workflow_id, "active": new_active, "action": endpoint}
+            else:
+                raise HTTPException(status_code=resp2.status_code, detail=resp2.text[:200])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/n8n/executions")
+async def n8n_recent_executions(limit: int = 10, user: dict = Depends(get_current_user)):
+    """Get recent workflow executions."""
+    if not N8N_API_KEY:
+        raise HTTPException(status_code=400, detail="N8N_API_KEY not configured")
+    try:
+        headers = {"X-N8N-API-KEY": N8N_API_KEY}
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{N8N_BASE_URL}/api/v1/executions?limit={limit}", headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=f"n8n error: {resp.text[:200]}")
+            data = resp.json()
+            executions = []
+            for ex in data.get("data", []):
+                executions.append({
+                    "id": ex.get("id"),
+                    "workflowName": ex.get("workflowData", {}).get("name", "?"),
+                    "status": ex.get("status", ex.get("finished", False) and "success" or "running"),
+                    "startedAt": ex.get("startedAt", ""),
+                    "stoppedAt": ex.get("stoppedAt", ""),
+                    "mode": ex.get("mode", ""),
+                })
+            return {"executions": executions}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------------------------------------------------------------
 # OpenClaw Bot Management
 # ---------------------------------------------------------------------------
 OPENCLAW_DIR = os.getenv("OPENCLAW_DIR", f"{HOME_DIR}/openclaw")
