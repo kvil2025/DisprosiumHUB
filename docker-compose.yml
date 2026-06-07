@@ -12,6 +12,8 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - OLLAMA_URL=http://host.docker.internal:11434
       - N8N_URL=http://host.docker.internal:5678
+      - N8N_API_KEY=${N8N_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - ALLOWED_EMAIL=${ALLOWED_EMAIL}
       - HOME_DIR=${HOME_DIR:-/home/user}
       - DATA_DIR=${DATA_DIR:-/home/user/data}
