@@ -25,7 +25,13 @@
 <br>
 
 <p align="center">
-  <img src="docs/screenshot-dashboard.png" alt="DisprosiumHUB Dashboard" width="90%"/>
+  <img src="docs/screenshot-login.png" alt="DisprosiumHUB Login" width="30%"/>
+  <img src="docs/screenshot-dashboard.png" alt="DisprosiumHUB Dashboard" width="30%"/>
+  <img src="docs/screenshot-orchestrator.png" alt="DisprosiumHUB Orchestrator" width="30%"/>
+</p>
+
+<p align="center">
+  <sub>Login · Dashboard · AI Orchestrator</sub>
 </p>
 
 ---
@@ -153,7 +159,7 @@ Create **multi-step pipelines** that chain AI models with system actions:
 ### 1. Clone & Configure
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/DisprosiumHUB.git
+git clone https://github.com/kvil2025/DisprosiumHUB.git
 cd DisprosiumHUB
 
 # Configure environment
