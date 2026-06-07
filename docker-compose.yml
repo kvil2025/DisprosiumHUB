@@ -1,0 +1,36 @@
+services:
+  hp-command:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hp-command
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - JWT_SECRET=${JWT_SECRET}
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - N8N_URL=http://host.docker.internal:5678
+      - ALLOWED_EMAIL=${ALLOWED_EMAIL}
+      - HOME_DIR=${HOME_DIR:-/home/user}
+      - DATA_DIR=${DATA_DIR:-/home/user/data}
+      - OWNER_NAME=${OWNER_NAME:-User}
+      - OWNER_BIO=${OWNER_BIO:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - hp-data:/app/data
+      - ${OPENCLAW_PATH:-/home/user/openclaw}:${OPENCLAW_PATH:-/home/user/openclaw}
+    pid: host
+    privileged: true
+    networks:
+      - hp-network
+
+networks:
+  hp-network:
+    driver: bridge
+
+volumes:
+  hp-data:
