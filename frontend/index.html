@@ -2431,7 +2431,7 @@
           </div>
           <div style="display:flex;gap:8px;">
             <button class="btn btn-primary" onclick="loadN8n()" style="font-size:0.75rem;">🔄 Actualizar</button>
-            <button class="btn btn-primary" onclick="window.open(getN8nUrl(),'_blank')" style="font-size:0.75rem;">↗ Abrir n8n</button>
+            <a id="n8n-open-link" href="#" target="_blank" rel="noopener" class="btn btn-primary" style="font-size:0.75rem;text-decoration:none;">↗ Abrir n8n</a>
           </div>
         </div>
 
@@ -3920,6 +3920,9 @@
     async function loadN8n() {
       const statusEl = document.getElementById('n8n-conn-status');
       const contentEl = document.getElementById('n8n-content');
+      // Set link href
+      const openLink = document.getElementById('n8n-open-link');
+      if (openLink) openLink.href = getN8nUrl();
 
       // 1. Check status
       try {
