@@ -2403,8 +2403,6 @@ async def n8n_proxy(path: str, request: Request):
         text = text.replace("src='/", "src='/n8n-proxy/")
         text = text.replace('action="/', 'action="/n8n-proxy/')
         text = text.replace("action='/", "action='/n8n-proxy/")
-        text = text.replace('crossorigin src="/', 'crossorigin src="/n8n-proxy/')
-        text = text.replace('crossorigin href="/', 'crossorigin href="/n8n-proxy/')
         content = text.encode("utf-8")
 
     # Rewrite BASE_PATH in JavaScript responses (base-path.js)
