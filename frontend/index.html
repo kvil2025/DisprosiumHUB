@@ -2555,21 +2555,10 @@
     }
 
     function getN8nUrl() {
-      return window.HP_N8N_URL || `${window.location.origin}/n8n-proxy/`;
-    }
-
-    function setJwtCookie() {
-      if (state.jwt) {
-        document.cookie = `hp_jwt=${state.jwt}; path=/; SameSite=Lax; max-age=86400`;
-      }
-    }
-
-    function clearJwtCookie() {
-      document.cookie = 'hp_jwt=; path=/; max-age=0';
+      return window.HP_N8N_URL || 'https://n8n.tecknologia.cl';
     }
 
     function openN8n() {
-      setJwtCookie();
       window.open(getN8nUrl(), '_blank');
     }
 
@@ -2740,7 +2729,6 @@
       state.user = null;
       localStorage.removeItem('hp_jwt');
       localStorage.removeItem('hp_user');
-      clearJwtCookie();
 
       // Clear all intervals
       Object.values(state.intervals).forEach(clearInterval);
@@ -2771,7 +2759,6 @@
       document.getElementById('app').classList.add('visible');
 
       updateUserUI();
-      setJwtCookie();
       navigateTo('dashboard');
       startDashboardPolling();
     }
