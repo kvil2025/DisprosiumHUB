@@ -2429,9 +2429,9 @@
             <div class="dot offline"></div>
             <span>Verificando conexión...</span>
           </div>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:8px;align-items:center;">
             <button class="btn btn-primary" onclick="loadN8n()" style="font-size:0.75rem;">🔄 Actualizar</button>
-            <a id="n8n-open-link" href="#" target="_blank" rel="noopener" class="btn btn-primary" style="font-size:0.75rem;text-decoration:none;">↗ Abrir n8n</a>
+            <button class="btn btn-primary" onclick="openN8n()" style="font-size:0.75rem;">↗ Abrir n8n</button>
           </div>
         </div>
 
@@ -2555,7 +2555,22 @@
     }
 
     function getN8nUrl() {
-      return window.HP_N8N_URL || `${window.location.protocol}//${window.location.hostname}:5678`;
+      return window.HP_N8N_URL || `${window.location.origin}/n8n-proxy/`;
+    }
+
+    function setJwtCookie() {
+      if (state.jwt) {
+        document.cookie = `hp_jwt=${state.jwt}; path=/; SameSite=Lax; max-age=86400`;
+      }
+    }
+
+    function clearJwtCookie() {
+      document.cookie = 'hp_jwt=; path=/; max-age=0';
+    }
+
+    function openN8n() {
+      setJwtCookie();
+      window.open(getN8nUrl(), '_blank');
     }
 
     function getWsBase() {
@@ -2725,6 +2740,7 @@
       state.user = null;
       localStorage.removeItem('hp_jwt');
       localStorage.removeItem('hp_user');
+      clearJwtCookie();
 
       // Clear all intervals
       Object.values(state.intervals).forEach(clearInterval);
@@ -2755,6 +2771,7 @@
       document.getElementById('app').classList.add('visible');
 
       updateUserUI();
+      setJwtCookie();
       navigateTo('dashboard');
       startDashboardPolling();
     }
@@ -3920,10 +3937,6 @@
     async function loadN8n() {
       const statusEl = document.getElementById('n8n-conn-status');
       const contentEl = document.getElementById('n8n-content');
-      // Set link href
-      const openLink = document.getElementById('n8n-open-link');
-      if (openLink) openLink.href = getN8nUrl();
-
       // 1. Check status
       try {
         const resp = await apiFetch('/api/n8n/status');
@@ -3934,7 +3947,7 @@
           contentEl.innerHTML = `<div class="n8n-setup-card">
             <h3>⚠️ n8n no disponible</h3>
             <p>${status.error || 'No se pudo conectar a n8n. Verifica que esté corriendo en el puerto 5678.'}</p>
-            <button class="btn btn-primary" onclick="window.open(getN8nUrl(),'_blank')">↗ Abrir n8n</button>
+            <button class="btn btn-primary" onclick="openN8n()">↗ Abrir n8n</button>
           </div>`;
           return;
         }
@@ -3950,7 +3963,7 @@
             <p><code>N8N_API_KEY=tu-api-key-aquí</code></p>
             <p>3. Reconstruye el contenedor: <code>docker compose up -d --build</code></p>
             <br>
-            <button class="btn btn-primary" onclick="window.open(getN8nUrl() + '/settings/api','_blank')">↗ Ir a n8n Settings > API</button>
+            <button class="btn btn-primary" onclick="openN8n()">↗ Ir a n8n Settings</button>
           </div>`;
           return;
         }

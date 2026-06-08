@@ -43,7 +43,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
@@ -189,28 +189,54 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Skip non-API routes, public routes, and websocket upgrades
-        if (
-            not path.startswith("/api/")
-            or path in PUBLIC_PATHS
-            or request.headers.get("upgrade", "").lower() == "websocket"
-        ):
+        # Skip non-API routes (except n8n-proxy), public routes, and websocket upgrades
+        is_api = path.startswith("/api/")
+        is_n8n_proxy = path.startswith("/n8n-proxy/") or path == "/n8n-proxy"
+
+        if not is_api and not is_n8n_proxy:
             return await call_next(request)
 
-        # OPTIONS preflight should pass through
+        if path in PUBLIC_PATHS or request.headers.get("upgrade", "").lower() == "websocket":
+            return await call_next(request)
+
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Missing or malformed Authorization header"},
-            )
-        token = auth_header.removeprefix("Bearer ").strip()
+        # For n8n-proxy: accept JWT from cookie or query param (browser new tab)
+        token = None
+        if is_n8n_proxy:
+            token = request.cookies.get("hp_jwt")
+            if not token:
+                token = request.query_params.get("token")
+            if not token:
+                return HTMLResponse(
+                    content="<html><body style='background:#0a0a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;'>"
+                    "<div style='text-align:center;'><h2>\ud83d\udd12 Sesi\u00f3n requerida</h2>"
+                    "<p>Inicia sesi\u00f3n en DisprosiumHUB y luego haz click en 'Abrir n8n'.</p>"
+                    "<a href='/' style='color:#00f2ff;'>\u2190 Ir a DisprosiumHUB</a></div></body></html>",
+                    status_code=401,
+                )
+        else:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header.removeprefix("Bearer ").strip()
+            else:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Missing or malformed Authorization header"},
+                )
+
         try:
             verify_jwt_token(token)
         except HTTPException:
+            if is_n8n_proxy:
+                return HTMLResponse(
+                    content="<html><body style='background:#0a0a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;'>"
+                    "<div style='text-align:center;'><h2>\u23f0 Sesi\u00f3n expirada</h2>"
+                    "<p>Tu sesi\u00f3n ha expirado. Vuelve a iniciar sesi\u00f3n.</p>"
+                    "<a href='/' style='color:#00f2ff;'>\u2190 Ir a DisprosiumHUB</a></div></body></html>",
+                    status_code=401,
+                )
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or expired token"},
@@ -2311,6 +2337,84 @@ def termios_TIOCSCTTY():
     except AttributeError:
         # Fallback for Linux
         return 0x540E
+
+
+# ---------------------------------------------------------------------------
+# n8n Reverse Proxy — allows accessing n8n UI through Cloudflare Tunnel
+# ---------------------------------------------------------------------------
+N8N_PROXY_CLIENT = httpx.AsyncClient(
+    base_url=N8N_BASE_URL.rstrip("/"),
+    timeout=30,
+    follow_redirects=True,
+    limits=httpx.Limits(max_connections=20),
+)
+
+
+@app.api_route("/n8n-proxy/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def n8n_proxy(path: str, request: Request):
+    """Reverse proxy to n8n. Auth is handled by AuthMiddleware via cookie."""
+    target_url = f"/{path}"
+    if request.url.query:
+        target_url += f"?{request.url.query}"
+
+    # Forward headers (skip host)
+    fwd_headers = {}
+    for k, v in request.headers.items():
+        if k.lower() not in ("host", "cookie", "authorization", "connection"):
+            fwd_headers[k] = v
+    fwd_headers["host"] = N8N_BASE_URL.split("://", 1)[-1].split("/")[0]
+
+    body = await request.body()
+
+    try:
+        resp = await N8N_PROXY_CLIENT.request(
+            method=request.method,
+            url=target_url,
+            headers=fwd_headers,
+            content=body if body else None,
+        )
+    except Exception as e:
+        return HTMLResponse(
+            content=f"<html><body style='background:#0a0a0f;color:#fff;font-family:sans-serif;padding:40px;'>"
+            f"<h2>\u274c n8n no disponible</h2><p>{e}</p>"
+            f"<a href='/' style='color:#00f2ff;'>\u2190 Volver</a></body></html>",
+            status_code=502,
+        )
+
+    # Build response headers
+    resp_headers = {}
+    for k, v in resp.headers.items():
+        if k.lower() not in ("content-encoding", "content-length", "transfer-encoding", "connection"):
+            resp_headers[k] = v
+    # Remove X-Frame-Options so n8n can render
+    resp_headers.pop("x-frame-options", None)
+    resp_headers.pop("X-Frame-Options", None)
+
+    content = resp.content
+    content_type = resp.headers.get("content-type", "")
+
+    # Rewrite paths in HTML responses
+    if "text/html" in content_type:
+        text = content.decode("utf-8", errors="replace")
+        text = text.replace('href="/', 'href="/n8n-proxy/')
+        text = text.replace("href='/", "href='/n8n-proxy/")
+        text = text.replace('src="/', 'src="/n8n-proxy/')
+        text = text.replace("src='/", "src='/n8n-proxy/")
+        text = text.replace('action="/', 'action="/n8n-proxy/')
+        text = text.replace("action='/", "action='/n8n-proxy/")
+        content = text.encode("utf-8")
+
+    # Rewrite redirect Location headers
+    location = resp_headers.get("location") or resp_headers.get("Location")
+    if location and location.startswith("/"):
+        resp_headers["location"] = f"/n8n-proxy{location}"
+
+    return Response(
+        content=content,
+        status_code=resp.status_code,
+        headers=resp_headers,
+        media_type=content_type.split(";")[0] if content_type else None,
+    )
 
 
 # ---------------------------------------------------------------------------
