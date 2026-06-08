@@ -211,9 +211,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if not token:
                 return HTMLResponse(
                     content="<html><body style='background:#0a0a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;'>"
-                    "<div style='text-align:center;'><h2>\ud83d\udd12 Sesi\u00f3n requerida</h2>"
-                    "<p>Inicia sesi\u00f3n en DisprosiumHUB y luego haz click en 'Abrir n8n'.</p>"
-                    "<a href='/' style='color:#00f2ff;'>\u2190 Ir a DisprosiumHUB</a></div></body></html>",
+                    "<div style='text-align:center;'><h2>&#128274; Sesion requerida</h2>"
+                    "<p>Inicia sesion en DisprosiumHUB y luego haz click en 'Abrir n8n'.</p>"
+                    "<a href='/' style='color:#00f2ff;'>&larr; Ir a DisprosiumHUB</a></div></body></html>",
                     status_code=401,
                 )
         else:
@@ -232,9 +232,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if is_n8n_proxy:
                 return HTMLResponse(
                     content="<html><body style='background:#0a0a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;'>"
-                    "<div style='text-align:center;'><h2>\u23f0 Sesi\u00f3n expirada</h2>"
-                    "<p>Tu sesi\u00f3n ha expirado. Vuelve a iniciar sesi\u00f3n.</p>"
-                    "<a href='/' style='color:#00f2ff;'>\u2190 Ir a DisprosiumHUB</a></div></body></html>",
+                    "<div style='text-align:center;'><h2>&#9200; Sesion expirada</h2>"
+                    "<p>Tu sesion ha expirado. Vuelve a iniciar sesion.</p>"
+                    "<a href='/' style='color:#00f2ff;'>&larr; Ir a DisprosiumHUB</a></div></body></html>",
                     status_code=401,
                 )
             return JSONResponse(
@@ -2376,8 +2376,8 @@ async def n8n_proxy(path: str, request: Request):
     except Exception as e:
         return HTMLResponse(
             content=f"<html><body style='background:#0a0a0f;color:#fff;font-family:sans-serif;padding:40px;'>"
-            f"<h2>\u274c n8n no disponible</h2><p>{e}</p>"
-            f"<a href='/' style='color:#00f2ff;'>\u2190 Volver</a></body></html>",
+            f"<h2>Error: n8n no disponible</h2><p>{e}</p>"
+            f"<a href='/' style='color:#00f2ff;'>&larr; Volver</a></body></html>",
             status_code=502,
         )
 
