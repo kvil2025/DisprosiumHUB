@@ -191,7 +191,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Skip non-API routes (except n8n-proxy), public routes, and websocket upgrades
         is_api = path.startswith("/api/")
-        is_n8n_proxy = path.startswith("/n8n-proxy/") or path == "/n8n-proxy"
+        is_n8n_proxy = path.startswith("/n8n-proxy/") or path == "/n8n-proxy" or path.startswith("/rest/")
 
         if not is_api and not is_n8n_proxy:
             return await call_next(request)
@@ -2350,14 +2350,24 @@ N8N_PROXY_CLIENT = httpx.AsyncClient(
 )
 
 
+@app.api_route("/rest/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def n8n_rest_proxy(path: str, request: Request):
+    """Proxy n8n REST API calls. n8n frontend calls /rest/* directly."""
+    return await _proxy_to_n8n(f"rest/{path}", request)
+
+
 @app.api_route("/n8n-proxy/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def n8n_proxy(path: str, request: Request):
-    """Reverse proxy to n8n. Auth is handled by AuthMiddleware via cookie."""
+    """Reverse proxy to n8n UI. Auth is handled by AuthMiddleware via cookie."""
+    return await _proxy_to_n8n(path, request)
+
+
+async def _proxy_to_n8n(path: str, request: Request):
+    """Shared proxy logic for both /n8n-proxy/* and /rest/* routes."""
     target_url = f"/{path}"
     if request.url.query:
         target_url += f"?{request.url.query}"
 
-    # Forward headers (skip host, encoding, auth)
     fwd_headers = {}
     for k, v in request.headers.items():
         if k.lower() not in ("host", "cookie", "authorization", "connection", "accept-encoding"):
