@@ -2357,12 +2357,13 @@ async def n8n_proxy(path: str, request: Request):
     if request.url.query:
         target_url += f"?{request.url.query}"
 
-    # Forward headers (skip host)
+    # Forward headers (skip host, encoding, auth)
     fwd_headers = {}
     for k, v in request.headers.items():
-        if k.lower() not in ("host", "cookie", "authorization", "connection"):
+        if k.lower() not in ("host", "cookie", "authorization", "connection", "accept-encoding"):
             fwd_headers[k] = v
     fwd_headers["host"] = N8N_BASE_URL.split("://", 1)[-1].split("/")[0]
+    fwd_headers["accept-encoding"] = "identity"
 
     body = await request.body()
 
