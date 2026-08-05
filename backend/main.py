@@ -63,8 +63,11 @@ GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
 ALLOWED_EMAIL: str = os.getenv("ALLOWED_EMAIL", "")
 HOME_DIR: str = os.getenv("HOME_DIR", "/home/user")
 DATA_DIR: str = os.getenv("DATA_DIR", f"{HOME_DIR}/data")
-OLLAMA_BASE_URL: str = os.getenv("OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
-N8N_BASE_URL: str = os.getenv("N8N_URL", os.getenv("N8N_BASE_URL", "http://localhost:5678"))
+OLLAMA_BASE_URL: str = os.getenv("OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).strip().rstrip("/")
+_n8n_env = os.getenv("N8N_URL", os.getenv("N8N_BASE_URL", "http://localhost:5678")).strip().rstrip("/")
+if _n8n_env and not _n8n_env.startswith(("http://", "https://")):
+    _n8n_env = f"http://{_n8n_env}"
+N8N_BASE_URL: str = _n8n_env
 N8N_API_KEY: str = os.getenv("N8N_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 FRONTEND_DIR: str = os.getenv("FRONTEND_DIR", "/app/frontend")
@@ -1566,18 +1569,19 @@ async def execute_step(step_type: str, config: dict, step_outputs: dict) -> str:
     """Execute a single pipeline step and return its output string."""
 
     # ── Variable interpolation ──
-    def _interpolate(cfg: dict) -> dict:
-        interpolated = {}
-        for k, v in cfg.items():
-            if isinstance(v, str):
-                # Replace {{step_N.output}} with actual outputs
-                def _replace_match(m):
-                    idx = int(m.group(1))
-                    return step_outputs.get(idx, f"[step_{idx}_no_output]")
-                interpolated[k] = _re.sub(r"\{\{step_(\d+)\.output\}\}", _replace_match, v)
-            else:
-                interpolated[k] = v
-        return interpolated
+    def _interpolate(cfg):
+        """Recursively interpolate {{step_N.output}} placeholders in strings, dicts, and lists."""
+        def _replace_match(m):
+            idx = int(m.group(1))
+            return step_outputs.get(idx, f"[step_{idx}_no_output]")
+
+        if isinstance(cfg, str):
+            return _re.sub(r"\{\{step_(\d+)\.output\}\}", _replace_match, cfg)
+        elif isinstance(cfg, dict):
+            return {k: _interpolate(v) for k, v in cfg.items()}
+        elif isinstance(cfg, list):
+            return [_interpolate(item) for item in cfg]
+        return cfg
 
     config = _interpolate(config)
 
@@ -1642,9 +1646,25 @@ async def execute_step(step_type: str, config: dict, step_outputs: dict) -> str:
 
     # ── n8n_webhook ──
     elif step_type == "n8n_webhook":
-        webhook_url = config.get("webhook_url", "")
+        webhook_url = config.get("webhook_url", "").strip()
         if not webhook_url:
             return "Error: No webhook_url provided for n8n_webhook"
+
+        # Normalize URL: ensure protocol prefix is present
+        if not webhook_url.startswith(("http://", "https://")):
+            if webhook_url.startswith("/"):
+                # Absolute path like /webhook/abc → prepend N8N base
+                webhook_url = f"{N8N_BASE_URL}{webhook_url}"
+            elif "/" not in webhook_url.split(":")[0] and "." not in webhook_url.split("/")[0] and "localhost" not in webhook_url:
+                # Bare webhook ID like "7CAQtLYA7myf5KiW"
+                webhook_url = f"{N8N_BASE_URL}/webhook/{webhook_url}"
+            elif webhook_url.startswith("webhook/"):
+                # Relative path like "webhook/abc"
+                webhook_url = f"{N8N_BASE_URL}/{webhook_url}"
+            else:
+                # Hostname without scheme like "n8n.mydomain.cl/webhook/abc"
+                webhook_url = f"http://{webhook_url}"
+
         payload = config.get("payload", {})
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(webhook_url, json=payload)

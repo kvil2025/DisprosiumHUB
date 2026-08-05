@@ -2555,7 +2555,11 @@
     }
 
     function getN8nUrl() {
-      return window.HP_N8N_URL || 'https://n8n.tecknologia.cl';
+      let url = window.HP_N8N_URL || 'https://n8n.tecknologia.cl';
+      if (!/^https?:\/\//i.test(url)) {
+        url = 'http://' + url;
+      }
+      return url;
     }
 
     function openN8n() {
