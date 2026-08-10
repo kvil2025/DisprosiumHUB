@@ -932,10 +932,14 @@ SKILLS NATIVOS (se ejecutan automáticamente sin IA):
 - "n8n [webhook-id]" → ejecutar un webhook de n8n
 - "modelos" / "llm" → ver modelos de IA instalados y recomendaciones
 - "descargar [modelo]" / "pull [modelo]" → descargar nuevo modelo de Ollama
+- "obsidian notas" → listar notas recientes del Vault de Obsidian
+- "obsidian buscar [texto]" → buscar dentro de las notas de Obsidian
+- "obsidian guardar [título]: [contenido]" → crear una nota nueva en el Vault
 
 CAPACIDADES ESPECIALES:
 - Controlas el HP server (CPU, RAM, disco, procesos, Docker)
 - Puedes interactuar con n8n para automatizar tareas
+- Tienes acceso al Vault de Obsidian — puedes leer, buscar y crear notas Markdown
 - Puedes recomendar qué modelo de IA usar según la tarea:
   * Tareas generales → llama3.2:1b (rápido, liviano)
   * Coding/técnico → qwen2.5-coder (si está instalado)
@@ -1140,6 +1144,98 @@ async def _detect_and_run_skill(message: str) -> Optional[dict]:
             return {"skill": "analizar", "error": "Ni Gemini ni Ollama disponibles"}
         except Exception as e:
             return {"skill": "analizar", "error": str(e)}
+
+    # ── Obsidian Vault Skills ──
+    if cmd.startswith("obsidian"):
+        vault_dir = Path(OBSIDIAN_VAULT_PATH)
+        vault_dir.mkdir(parents=True, exist_ok=True)
+
+        # List notes
+        if cmd in ("obsidian notas", "obsidian vault", "obsidian list", "obsidian"):
+            notes = []
+            for p in vault_dir.glob("**/*.md"):
+                try:
+                    stat = p.stat()
+                    notes.append({
+                        "name": p.name,
+                        "rel_path": str(p.relative_to(vault_dir)),
+                        "size": stat.st_size,
+                        "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M"),
+                    })
+                except Exception:
+                    pass
+            notes.sort(key=lambda x: x["mtime"], reverse=True)
+            return {"skill": "obsidian_notas", "vault_path": str(vault_dir), "count": len(notes), "notes": notes[:20]}
+
+        # Search inside notes
+        if cmd.startswith("obsidian buscar ") or cmd.startswith("obsidian busca ") or cmd.startswith("obsidian search "):
+            query = original.split(" ", 2)[-1].strip().lower()
+            results = []
+            for p in vault_dir.glob("**/*.md"):
+                try:
+                    content = p.read_text(encoding="utf-8", errors="ignore")
+                    if query in content.lower():
+                        # Find matching lines
+                        matches = [line.strip() for line in content.split("\n") if query in line.lower()][:3]
+                        results.append({
+                            "name": p.name,
+                            "rel_path": str(p.relative_to(vault_dir)),
+                            "matches": matches,
+                        })
+                except Exception:
+                    pass
+            return {"skill": "obsidian_buscar", "query": query, "count": len(results), "results": results[:10]}
+
+        # Read a specific note
+        if cmd.startswith("obsidian leer ") or cmd.startswith("obsidian read ") or cmd.startswith("obsidian ver "):
+            note_name = original.split(" ", 2)[-1].strip()
+            found = None
+            for p in vault_dir.glob("**/*.md"):
+                if note_name.lower() in p.name.lower():
+                    found = p
+                    break
+            if found:
+                content = found.read_text(encoding="utf-8", errors="ignore")[:4000]
+                return {"skill": "obsidian_leer", "name": found.name, "path": str(found), "content": content}
+            return {"skill": "obsidian_leer", "error": f"Nota '{note_name}' no encontrada en el Vault"}
+
+        # Create a new note
+        if cmd.startswith("obsidian guardar ") or cmd.startswith("obsidian crear ") or cmd.startswith("obsidian save "):
+            rest = original.split(" ", 2)[-1].strip()
+            if ":" in rest:
+                title, content = rest.split(":", 1)
+            else:
+                title = rest
+                content = ""
+            title = title.strip()
+            content = content.strip()
+            safe_title = title.replace(" ", "_")
+            date_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            note_filename = f"{date_prefix}_{safe_title}.md"
+            inbox = vault_dir / "Inbox"
+            inbox.mkdir(parents=True, exist_ok=True)
+            note_path = inbox / note_filename
+            now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            note_content = f"""---
+title: "{title}"
+date: {now_str}
+source: OpenClaw
+tags:
+  - openclaw
+  - obsidian
+---
+
+# {title}
+
+{content}
+
+---
+*Creado por [[OpenClaw]] vía chat el {now_str}*
+"""
+            note_path.write_text(note_content, encoding="utf-8")
+            return {"skill": "obsidian_guardar", "filename": note_filename, "path": str(note_path), "title": title}
+
+        return {"skill": "obsidian_help", "result": "Comandos disponibles: 'obsidian notas', 'obsidian buscar [texto]', 'obsidian leer [nombre]', 'obsidian guardar [título]: [contenido]'"}
 
     # Listar directorio (local o dentro de un container)
     if cmd.startswith("ls ") or cmd.startswith("listar ") or cmd.startswith("directorio "):
