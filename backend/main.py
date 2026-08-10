@@ -63,7 +63,10 @@ GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
 ALLOWED_EMAIL: str = os.getenv("ALLOWED_EMAIL", "")
 HOME_DIR: str = os.getenv("HOME_DIR", "/home/user")
 DATA_DIR: str = os.getenv("DATA_DIR", f"{HOME_DIR}/data")
-OLLAMA_BASE_URL: str = os.getenv("OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).strip().rstrip("/")
+_ollama_env = os.getenv("OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).strip().rstrip("/")
+if _ollama_env and not _ollama_env.startswith(("http://", "https://")):
+    _ollama_env = f"http://{_ollama_env}"
+OLLAMA_BASE_URL: str = _ollama_env
 _n8n_env = os.getenv("N8N_URL", os.getenv("N8N_BASE_URL", "http://localhost:5678")).strip().rstrip("/")
 if _n8n_env and not _n8n_env.startswith(("http://", "https://")):
     _n8n_env = f"http://{_n8n_env}"
@@ -1653,17 +1656,18 @@ async def execute_step(step_type: str, config: dict, step_outputs: dict) -> str:
         # Normalize URL: ensure protocol prefix is present
         if not webhook_url.startswith(("http://", "https://")):
             if webhook_url.startswith("/"):
-                # Absolute path like /webhook/abc → prepend N8N base
                 webhook_url = f"{N8N_BASE_URL}{webhook_url}"
-            elif "/" not in webhook_url.split(":")[0] and "." not in webhook_url.split("/")[0] and "localhost" not in webhook_url:
+            elif webhook_url.startswith("webhook/"):
+                webhook_url = f"{N8N_BASE_URL}/{webhook_url}"
+            elif "/" not in webhook_url:
                 # Bare webhook ID like "7CAQtLYA7myf5KiW"
                 webhook_url = f"{N8N_BASE_URL}/webhook/{webhook_url}"
-            elif webhook_url.startswith("webhook/"):
-                # Relative path like "webhook/abc"
-                webhook_url = f"{N8N_BASE_URL}/{webhook_url}"
             else:
-                # Hostname without scheme like "n8n.mydomain.cl/webhook/abc"
+                # Hostname without scheme like "n8n:5678/webhook/..." or "localhost:5678/..."
                 webhook_url = f"http://{webhook_url}"
+
+        if not webhook_url.startswith(("http://", "https://")):
+            webhook_url = f"http://{webhook_url}"
 
         payload = config.get("payload", {})
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -2331,6 +2335,177 @@ def termios_TIOCSCTTY():
     except AttributeError:
         # Fallback for Linux
         return 0x540E
+
+
+
+
+# ---------------------------------------------------------------------------
+# Obsidian Vault Ingestion & Management
+# ---------------------------------------------------------------------------
+OBSIDIAN_VAULT_PATH: str = os.getenv("OBSIDIAN_VAULT_PATH", f"{HOME_DIR}/Documents/ObsidianVault")
+OBSIDIAN_INBOX_FOLDER: str = os.getenv("OBSIDIAN_INBOX_FOLDER", "Inbox")
+
+
+def _get_obsidian_vault_dir() -> Path:
+    vdir = Path(OBSIDIAN_VAULT_PATH)
+    vdir.mkdir(parents=True, exist_ok=True)
+    return vdir
+
+
+def _extract_document_text(file_bytes: bytes, filename: str) -> tuple[str, str]:
+    """Extract raw text and document type from PDF, DOCX, XLSX, or plain text file."""
+    ext = Path(filename).suffix.lower()
+    text = ""
+
+    if ext == ".pdf":
+        try:
+            import io, pypdf
+            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+            text_pages = [page.extract_text() or "" for page in reader.pages]
+            text = "\n\n".join(text_pages)
+        except Exception as e:
+            text = f"[PDF extraction note: {e}]"
+        return text, "PDF"
+
+    elif ext in (".docx", ".doc"):
+        try:
+            import io, docx
+            doc = docx.Document(io.BytesIO(file_bytes))
+            full_text = []
+            for p in doc.paragraphs:
+                if p.text.strip():
+                    full_text.append(p.text.strip())
+            for table in doc.tables:
+                for row in table.rows:
+                    row_txt = " | ".join(cell.text.strip() for cell in row.cells)
+                    if row_txt.strip():
+                        full_text.append(f"| {row_txt} |")
+            text = "\n\n".join(full_text)
+        except Exception as e:
+            text = f"[Word extraction note: {e}]"
+        return text, "Word"
+
+    elif ext in (".xlsx", ".xls", ".csv"):
+        try:
+            import io, openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+            sheets_text = []
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                sheet_lines = [f"### Hoja: {sheet_name}"]
+                for row in ws.iter_rows(values_only=True):
+                    if any(c is not None for c in row):
+                        line = " | ".join(str(c) if c is not None else "" for c in row)
+                        sheet_lines.append(f"| {line} |")
+                sheets_text.append("\n".join(sheet_lines))
+            text = "\n\n".join(sheets_text)
+        except Exception as e:
+            text = f"[Excel extraction note: {e}]"
+        return text, "Excel"
+
+    else:
+        try:
+            text = file_bytes.decode("utf-8", errors="ignore")
+        except Exception:
+            text = str(file_bytes)
+        return text, "Texto/Otro"
+
+
+@app.post("/api/obsidian/ingest")
+async def obsidian_ingest_file(
+    file: UploadFile = File(...),
+    subfolder: str = Form("Inbox"),
+    user: dict = Depends(get_current_user),
+):
+    """Ingest Excel, Word, PDF or text file into Obsidian Vault as an enriched Markdown note."""
+    file_bytes = await file.read()
+    raw_text, doc_type = _extract_document_text(file_bytes, file.filename)
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    date_prefix = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Generate AI summary and tags
+    summary = ""
+    if GEMINI_AVAILABLE and GEMINI_API_KEY:
+        try:
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            prompt = f"Resume este documento en 3 viñetas breves y sugiere etiquetas relevante en formato #tag:\n\n{raw_text[:4000]}"
+            ai_resp = model.generate_content(prompt).text
+            summary = ai_resp
+        except Exception as e:
+            summary = f"Documento {doc_type} procesado automáticamente."
+    else:
+        summary = f"Documento {doc_type} ingresado a Obsidian el {now_str}."
+
+    safe_title = Path(file.filename).stem.replace(" ", "_")
+    note_filename = f"{date_prefix}_{safe_title}.md"
+
+    frontmatter = f"""---
+title: "{file.filename}"
+type: {doc_type}
+date: {now_str}
+source_file: "{file.filename}"
+tags:
+  - obsidian
+  - {doc_type.lower()}
+  - disprosiumhub
+---
+
+# 📄 {file.filename}
+
+> [!INFO] Metadatos
+> - **Tipo:** {doc_type}
+> - **Ingresado:** {now_str}
+> - **Origen:** DisprosiumHUB Ingestion Engine
+
+## 🤖 Resumen & Análisis
+{summary}
+
+## 📝 Contenido Extraído
+
+{raw_text}
+
+---
+*Procesado automáticamente por [[DisprosiumHUB]] para [[Obsidian Vault]]*
+"""
+
+    vault_dir = _get_obsidian_vault_dir()
+    target_dir = vault_dir / subfolder
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / note_filename
+
+    target_path.write_text(frontmatter, encoding="utf-8")
+    logger.info("User %s ingested %s into Obsidian Vault at %s", user.get("sub"), file.filename, target_path)
+
+    return {
+        "status": "success",
+        "filename": note_filename,
+        "vault_path": str(target_path),
+        "doc_type": doc_type,
+        "summary": summary[:300],
+    }
+
+
+@app.get("/api/obsidian/notes")
+async def obsidian_list_notes(user: dict = Depends(get_current_user)):
+    """List all Markdown notes in the Obsidian Vault."""
+    vault_dir = _get_obsidian_vault_dir()
+    notes = []
+    if vault_dir.exists():
+        for p in vault_dir.glob("**/*.md"):
+            try:
+                stat = p.stat()
+                rel_path = p.relative_to(vault_dir)
+                notes.append({
+                    "name": p.name,
+                    "rel_path": str(rel_path),
+                    "size_bytes": stat.st_size,
+                    "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
+    notes.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"vault_path": str(vault_dir), "count": len(notes), "notes": notes[:100]}
 
 
 
