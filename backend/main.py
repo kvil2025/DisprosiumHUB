@@ -2605,6 +2605,27 @@ async def obsidian_list_notes(user: dict = Depends(get_current_user)):
     return {"vault_path": str(vault_dir), "count": len(notes), "notes": notes[:100]}
 
 
+@app.get("/api/obsidian/note")
+async def obsidian_read_note(path: str, user: dict = Depends(get_current_user)):
+    """Read the content of a specific Markdown note from the Obsidian Vault."""
+    vault_dir = _get_obsidian_vault_dir()
+    note_path = vault_dir / path
+    # Security: ensure the resolved path is within the vault
+    try:
+        note_path.resolve().relative_to(vault_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Acceso denegado: ruta fuera del Vault")
+    if not note_path.exists() or not note_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Nota no encontrada: {path}")
+    content = note_path.read_text(encoding="utf-8", errors="ignore")
+    stat = note_path.stat()
+    return {
+        "name": note_path.name,
+        "rel_path": path,
+        "content": content,
+        "size_bytes": stat.st_size,
+        "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+    }
 
 
 # ---------------------------------------------------------------------------

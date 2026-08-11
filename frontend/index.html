@@ -2520,53 +2520,68 @@
       <section class="section" id="section-obsidian">
         <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;">
           <div>
-            <h2>💎 Obsidian Vault Ingestion</h2>
-            <p class="section-desc">Procesador e Ingestor de Documentos (Excel, Word, PDF) hacia tu Vault de Obsidian</p>
+            <h2>💎 Obsidian Vault</h2>
+            <p class="section-desc">Visor de Notas Markdown + Ingestor de Documentos</p>
           </div>
-          <button class="btn btn-primary" onclick="loadObsidianVault()" style="font-size:0.8rem;">🔄 Actualizar Notas</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="loadObsidianVault()" style="font-size:0.75rem;">🔄 Actualizar</button>
+            <button class="btn btn-primary" onclick="toggleObsUpload()" style="font-size:0.75rem;">📤 Subir Documento</button>
+          </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
-          <!-- Ingestion Card -->
-          <div class="glass-card" style="padding:20px;">
-            <h3 style="font-size:1rem;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
-              <span>📄 Cargar Documentos</span>
-            </h3>
-            <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:16px;">
-              Sube tus archivos <b>.xlsx, .docx, .pdf, .csv o .txt</b>. DisprosiumHUB los procesará con IA y los guardará directamente en tu Vault de Obsidian en el servidor.
-            </p>
-
-            <div style="margin-bottom:12px;">
-              <label style="font-size:0.75rem;color:var(--text-secondary);display:block;margin-bottom:4px;">Carpeta Destino en el Vault:</label>
-              <select id="obs-subfolder-select" class="glass-input" style="width:100%;padding:8px 12px;border-radius:8px;">
-                <option value="Inbox">📁 Inbox/ (Predeterminado)</option>
+        <!-- Upload Panel (togglable) -->
+        <div id="obs-upload-panel" style="display:none;margin-bottom:16px;">
+          <div class="glass-card" style="padding:16px;">
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+              <select id="obs-subfolder-select" class="glass-input" style="padding:6px 10px;border-radius:6px;font-size:0.8rem;width:180px;">
+                <option value="Inbox">📁 Inbox/</option>
                 <option value="Proyectos">📁 Proyectos/</option>
                 <option value="Reportes">📁 Reportes/</option>
                 <option value="Finanzas">📁 Finanzas/</option>
               </select>
+              <div id="obs-drop-zone" style="flex:1;border:2px dashed rgba(0,242,255,0.3);text-align:center;padding:16px;border-radius:8px;cursor:pointer;min-width:250px;transition:all 0.3s;" onclick="document.getElementById('obs-file-input').click()">
+                <span style="font-size:0.85rem;">💎 Haz clic o arrastra un archivo aquí</span>
+                <span style="font-size:0.7rem;color:var(--text-secondary);margin-left:8px;">(PDF, Word, Excel, CSV, TXT)</span>
+                <input type="file" id="obs-file-input" style="display:none;" onchange="handleObsidianFileInput(this)" accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.md">
+              </div>
             </div>
+            <div id="obs-upload-status" style="margin-top:8px;font-size:0.8rem;display:none;"></div>
+          </div>
+        </div>
 
-            <div id="obs-drop-zone" class="glass-card" style="border:2px dashed rgba(0,242,255,0.3);text-align:center;padding:32px 16px;cursor:pointer;transition:all 0.3s;" onclick="document.getElementById('obs-file-input').click()">
-              <div style="font-size:2rem;margin-bottom:8px;">💎</div>
-              <div style="font-size:0.9rem;font-weight:600;margin-bottom:4px;">Haz clic o arrastra un archivo aquí</div>
-              <div style="font-size:0.75rem;color:var(--text-secondary);">Soporta PDF, Word (.docx), Excel (.xlsx), CSV, TXT</div>
-              <input type="file" id="obs-file-input" style="display:none;" onchange="handleObsidianFileInput(this)" accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.md">
+        <!-- Main Vault Layout: Sidebar + Viewer -->
+        <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;min-height:500px;">
+          <!-- Left: Note List -->
+          <div class="glass-card" style="padding:0;display:flex;flex-direction:column;overflow:hidden;">
+            <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,0.06);">
+              <input type="text" id="obs-search-input" class="glass-input" placeholder="🔍 Buscar notas..." style="width:100%;padding:7px 10px;border-radius:6px;font-size:0.8rem;" oninput="filterObsidianNotes(this.value)">
             </div>
-
-            <div id="obs-upload-status" style="margin-top:12px;font-size:0.8rem;display:none;"></div>
+            <div style="padding:8px 10px;font-size:0.7rem;color:var(--text-secondary);border-bottom:1px solid rgba(255,255,255,0.04);">
+              <span id="obs-vault-path" style="font-family:var(--font-mono);color:var(--accent);">Cargando...</span>
+              <span id="obs-note-count" style="float:right;"></span>
+            </div>
+            <div id="obs-notes-list" style="flex:1;overflow-y:auto;padding:4px;">
+              <div style="color:var(--text-secondary);font-size:0.8rem;text-align:center;padding:30px 10px;">Cargando notas...</div>
+            </div>
           </div>
 
-          <!-- Vault Info & Stats -->
-          <div class="glass-card" style="padding:20px;display:flex;flex-direction:column;">
-            <h3 style="font-size:1rem;margin-bottom:12px;">🗂️ Estado del Vault en Servidor</h3>
-            <div style="margin-bottom:16px;padding:12px;background:rgba(0,242,255,0.05);border-radius:8px;border:1px solid rgba(0,242,255,0.15);">
-              <div style="font-size:0.75rem;color:var(--text-secondary);">Ruta del Vault en HP:</div>
-              <div id="obs-vault-path" style="font-family:var(--font-mono);font-size:0.8rem;color:var(--accent);word-break:break-all;">Cargando...</div>
+          <!-- Right: Markdown Viewer -->
+          <div class="glass-card" style="padding:0;display:flex;flex-direction:column;overflow:hidden;">
+            <div id="obs-viewer-header" style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between;">
+              <div>
+                <span id="obs-viewer-title" style="font-weight:600;font-size:0.9rem;">Selecciona una nota</span>
+                <span id="obs-viewer-meta" style="font-size:0.7rem;color:var(--text-secondary);margin-left:10px;"></span>
+              </div>
+              <div id="obs-viewer-actions" style="display:none;gap:6px;">
+                <button class="btn btn-primary" onclick="toggleObsRawView()" style="font-size:0.7rem;padding:4px 10px;">{ } Raw</button>
+              </div>
             </div>
-
-            <h4 style="font-size:0.85rem;margin-bottom:8px;">Notas Recientes en Vault</h4>
-            <div id="obs-notes-list" style="flex:1;overflow-y:auto;max-height:220px;">
-              <div style="color:var(--text-secondary);font-size:0.8rem;text-align:center;padding:20px;">Cargando notas...</div>
+            <div id="obs-viewer-content" style="flex:1;overflow-y:auto;padding:20px 24px;font-size:0.88rem;line-height:1.7;">
+              <div style="text-align:center;padding:60px 20px;color:var(--text-secondary);">
+                <div style="font-size:3rem;margin-bottom:12px;">💎</div>
+                <div style="font-size:1rem;font-weight:600;margin-bottom:6px;">Obsidian Vault Viewer</div>
+                <div style="font-size:0.82rem;">Selecciona una nota del panel izquierdo para visualizar su contenido Markdown renderizado</div>
+              </div>
             </div>
           </div>
         </div>
@@ -4921,37 +4936,170 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       OBSIDIAN VAULT INGESTION
+       OBSIDIAN VAULT INGESTION & VIEWER
     ═══════════════════════════════════════════════════════════════ */
+    let obsidianState = {
+      notes: [],
+      filteredNotes: [],
+      currentNote: null,
+      rawMode: false,
+    };
+
+    function toggleObsUpload() {
+      const panel = document.getElementById('obs-upload-panel');
+      if (panel) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+
     async function loadObsidianVault() {
       const pathEl = document.getElementById('obs-vault-path');
       const listEl = document.getElementById('obs-notes-list');
+      const countEl = document.getElementById('obs-note-count');
       if (!pathEl || !listEl) return;
+
       try {
         const resp = await apiFetch('/api/obsidian/notes');
         if (!resp.ok) throw new Error('Error cargando Vault');
         const data = await resp.json();
-        
-        pathEl.textContent = data.vault_path || 'No configurado';
-        
-        if (!data.notes || data.notes.length === 0) {
-          listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:0.8rem;text-align:center;padding:20px;">Sin notas aún en el Vault</div>';
-          return;
-        }
 
-        listEl.innerHTML = data.notes.map(n => `
-          <div style="padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(255,255,255,0.05);">
-            <div>
-              <div style="font-weight:600;font-size:0.8rem;color:var(--text-primary);">📝 ${escapeHtml(n.name)}</div>
-              <div style="font-size:0.7rem;color:var(--text-secondary);">${escapeHtml(n.rel_path)} · ${(n.size_bytes / 1024).toFixed(1)} KB</div>
-            </div>
-            <span style="font-size:0.65rem;color:var(--accent);font-family:var(--font-mono);">${new Date(n.mtime).toLocaleDateString()}</span>
-          </div>
-        `).join('');
+        pathEl.textContent = data.vault_path || 'Vault HP';
+        obsidianState.notes = data.notes || [];
+        obsidianState.filteredNotes = [...obsidianState.notes];
+        
+        if (countEl) countEl.textContent = `${obsidianState.notes.length} notas`;
+
+        renderObsidianNotesList();
       } catch (e) {
         pathEl.textContent = 'Error al conectar';
-        listEl.innerHTML = `<div style="color:var(--accent-red);font-size:0.8rem;padding:10px;">${e.message}</div>`;
+        listEl.innerHTML = `<div style="color:var(--accent-red);font-size:0.8rem;padding:15px;text-align:center;">${e.message}</div>`;
       }
+    }
+
+    function renderObsidianNotesList() {
+      const listEl = document.getElementById('obs-notes-list');
+      if (!listEl) return;
+
+      const notes = obsidianState.filteredNotes;
+      if (notes.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--text-secondary);font-size:0.8rem;text-align:center;padding:30px 10px;">Sin notas encontradas</div>';
+        return;
+      }
+
+      listEl.innerHTML = notes.map(n => {
+        const isActive = obsidianState.currentNote && obsidianState.currentNote.rel_path === n.rel_path;
+        return `
+          <div onclick="viewObsidianNote('${escapeHtml(n.rel_path)}')" 
+               style="padding:9px 12px;border-radius:6px;margin-bottom:4px;cursor:pointer;transition:all 0.2s;background:${isActive ? 'rgba(0,242,255,0.12)' : 'rgba(255,255,255,0.02)'};border:1px solid ${isActive ? 'rgba(0,242,255,0.3)' : 'rgba(255,255,255,0.04)'};">
+            <div style="font-weight:600;font-size:0.82rem;color:${isActive ? 'var(--accent)' : 'var(--text-primary)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              📄 ${escapeHtml(n.name)}
+            </div>
+            <div style="font-size:0.7rem;color:var(--text-secondary);display:flex;justify-content:space-between;margin-top:3px;">
+              <span>📁 ${escapeHtml(n.rel_path)}</span>
+              <span>${(n.size_bytes / 1024).toFixed(1)} KB</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function filterObsidianNotes(query) {
+      const q = (query || '').toLowerCase().trim();
+      if (!q) {
+        obsidianState.filteredNotes = [...obsidianState.notes];
+      } else {
+        obsidianState.filteredNotes = obsidianState.notes.filter(n => 
+          n.name.toLowerCase().includes(q) || n.rel_path.toLowerCase().includes(q)
+        );
+      }
+      renderObsidianNotesList();
+    }
+
+    async function viewObsidianNote(relPath) {
+      const titleEl = document.getElementById('obs-viewer-title');
+      const metaEl = document.getElementById('obs-viewer-meta');
+      const contentEl = document.getElementById('obs-viewer-content');
+      const actionsEl = document.getElementById('obs-viewer-actions');
+
+      if (!contentEl) return;
+
+      contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-secondary);">⏳ Cargando nota...</div>';
+
+      try {
+        const resp = await apiFetch(`/api/obsidian/note?path=${encodeURIComponent(relPath)}`);
+        if (!resp.ok) throw new Error('Error al leer la nota');
+        const data = await resp.json();
+
+        obsidianState.currentNote = data;
+        renderObsidianNotesList();
+
+        if (titleEl) titleEl.textContent = data.name;
+        if (metaEl) metaEl.textContent = `${data.rel_path} · ${(data.size_bytes / 1024).toFixed(1)} KB · ${new Date(data.mtime).toLocaleString()}`;
+        if (actionsEl) actionsEl.style.display = 'flex';
+
+        renderNoteBody();
+      } catch (e) {
+        if (contentEl) contentEl.innerHTML = `<div style="color:var(--accent-red);padding:20px;">❌ ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    function toggleObsRawView() {
+      obsidianState.rawMode = !obsidianState.rawMode;
+      renderNoteBody();
+    }
+
+    function renderNoteBody() {
+      const contentEl = document.getElementById('obs-viewer-content');
+      const note = obsidianState.currentNote;
+      if (!contentEl || !note) return;
+
+      if (obsidianState.rawMode) {
+        contentEl.innerHTML = `<pre style="font-family:var(--font-mono);font-size:0.8rem;white-space:pre-wrap;word-break:break-all;color:var(--accent-cyan);">${escapeHtml(note.content)}</pre>`;
+      } else {
+        contentEl.innerHTML = renderMarkdownToHtml(note.content);
+      }
+    }
+
+    function renderMarkdownToHtml(md) {
+      if (!md) return '<i>Nota vacía</i>';
+      let html = escapeHtml(md);
+
+      // Callouts: > [!INFO], > [!WARNING], > [!TIP]
+      html = html.replace(/^&gt;\s*\[!(INFO|WARNING|TIP|NOTE|IMPORTANT|CAUTION)\]\s*(.*)$/gmi, (match, type, title) => {
+        const colors = {
+          INFO: 'rgba(0,242,255,0.15)', WARNING: 'rgba(255,170,0,0.15)',
+          TIP: 'rgba(0,255,136,0.15)', NOTE: 'rgba(167,139,250,0.15)',
+          IMPORTANT: 'rgba(255,77,106,0.15)', CAUTION: 'rgba(255,77,106,0.15)'
+        };
+        const color = colors[type.toUpperCase()] || 'rgba(0,242,255,0.15)';
+        return `<div style="padding:10px 14px;background:${color};border-left:4px solid var(--accent);border-radius:4px;margin:12px 0;font-size:0.85rem;"><b>${type}:</b> ${title}</div>`;
+      });
+
+      // Headers # ## ###
+      html = html.replace(/^### (.*$)/gim, '<h3 style="font-size:1rem;color:var(--accent);margin:16px 0 8px 0;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:4px;">$1</h3>');
+      html = html.replace(/^## (.*$)/gim, '<h2 style="font-size:1.15rem;color:var(--text-primary);margin:20px 0 10px 0;border-bottom:1px solid rgba(0,242,255,0.2);padding-bottom:6px;">$1</h2>');
+      html = html.replace(/^# (.*$)/gim, '<h1 style="font-size:1.35rem;color:var(--accent);margin:24px 0 12px 0;font-weight:700;">$1</h1>');
+
+      // Bold & Italic
+      html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+      html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
+
+      // Obsidian Wikilinks [[Link]]
+      html = html.replace(/\[\[(.*?)\]\]/g, '<span style="color:var(--accent);background:rgba(0,242,255,0.1);padding:2px 6px;border-radius:4px;font-weight:600;">[[ $1 ]]</span>');
+
+      // Tags #tag
+      html = html.replace(/(^|\s)#([a-zA-Z0-9_\-]+)/g, '$1<span style="color:var(--accent-purple);background:rgba(167,139,250,0.12);padding:1px 6px;border-radius:10px;font-size:0.75rem;font-weight:600;">#$2</span>');
+
+      // Table formatting (basic pipe tables)
+      html = html.replace(/^\|(.*)\|$/gim, (match) => {
+        const cells = match.split('|').slice(1, -1).map(c => `<td style="padding:6px 12px;border:1px solid rgba(255,255,255,0.08);">${c.trim()}</td>`).join('');
+        return `<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:0.82rem;"><tr>${cells}</tr></table>`;
+      });
+
+      // Line breaks
+      html = html.replace(/\n/g, '<br>');
+
+      return html;
     }
 
     async function handleObsidianFileInput(input) {
@@ -4964,9 +5112,10 @@
     async function ingestFileToObsidian(file) {
       const statusEl = document.getElementById('obs-upload-status');
       const subfolder = document.getElementById('obs-subfolder-select').value || 'Inbox';
+      if (!statusEl) return;
       statusEl.style.display = 'block';
       statusEl.style.color = 'var(--accent)';
-      statusEl.innerHTML = `⏳ Procesando <b>${escapeHtml(file.filename || file.name)}</b> con IA...`;
+      statusEl.innerHTML = `⏳ Procesando <b>${escapeHtml(file.name)}</b> con IA...`;
 
       const formData = new FormData();
       formData.append('file', file);
@@ -4989,6 +5138,9 @@
         statusEl.innerHTML = `✅ <b>¡Nota guardada!</b> En <code>${escapeHtml(res.vault_path)}</code>`;
         showToast(`Documento ${file.name} ingresado a Obsidian Vault`, 'success');
         loadObsidianVault();
+        if (res.filename) {
+          viewObsidianNote(`${subfolder}/${res.filename}`);
+        }
       } catch (e) {
         statusEl.style.color = 'var(--accent-red)';
         statusEl.innerHTML = `❌ Error: ${escapeHtml(e.message)}`;
