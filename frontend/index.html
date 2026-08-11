@@ -2540,13 +2540,28 @@
                 <option value="Finanzas">📁 Finanzas/</option>
               </select>
               <div id="obs-drop-zone" style="flex:1;border:2px dashed rgba(0,242,255,0.3);text-align:center;padding:16px;border-radius:8px;cursor:pointer;min-width:250px;transition:all 0.3s;" onclick="document.getElementById('obs-file-input').click()">
-                <span style="font-size:0.85rem;">💎 Haz clic o arrastra un archivo aquí</span>
+                <span style="font-size:0.85rem;font-weight:600;">💎 Haz clic o arrastra MÚLTIPLES archivos aquí</span>
                 <span style="font-size:0.7rem;color:var(--text-secondary);margin-left:8px;">(PDF, Word, Excel, CSV, TXT)</span>
-                <input type="file" id="obs-file-input" style="display:none;" onchange="handleObsidianFileInput(this)" accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.md">
+                <input type="file" id="obs-file-input" style="display:none;" onchange="handleObsidianFileInput(this)" accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.md" multiple>
               </div>
             </div>
             <div id="obs-upload-status" style="margin-top:8px;font-size:0.8rem;display:none;"></div>
           </div>
+        </div>
+
+        <!-- Batch Processing Progress Widget -->
+        <div id="obs-batch-widget" class="glass-card" style="display:none;padding:14px 18px;margin-bottom:16px;background:rgba(0,242,255,0.06);border:1px solid rgba(0,242,255,0.2);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="font-weight:600;font-size:0.85rem;color:var(--accent);display:flex;align-items:center;gap:8px;">
+              <span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span>
+              <span id="obs-batch-status-text">Procesando cola de documentos en segundo plano...</span>
+            </div>
+            <span id="obs-batch-counter" style="font-size:0.75rem;font-family:var(--font-mono);color:var(--text-secondary);">0 / 0</span>
+          </div>
+          <div style="width:100%;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden;margin-bottom:8px;">
+            <div id="obs-batch-progress-bar" style="width:0%;height:100%;background:linear-gradient(90deg, var(--accent), var(--accent-purple));transition:width 0.3s;"></div>
+          </div>
+          <div id="obs-batch-items-list" style="max-height:100px;overflow-y:auto;font-size:0.75rem;"></div>
         </div>
 
         <!-- Main Vault Layout: Sidebar + Viewer -->
@@ -5102,51 +5117,189 @@
       return html;
     }
 
-    async function handleObsidianFileInput(input) {
+    /* ═══════════════════════════════════════════════════════════════
+       BATCH QUEUE MANAGER FOR MULTI-DOCUMENT INGESTION
+    ═══════════════════════════════════════════════════════════════ */
+    const obsidianQueueManager = {
+      queue: [],
+      isProcessing: false,
+      totalCount: 0,
+      completedCount: 0,
+      successCount: 0,
+      errorCount: 0,
+
+      addFiles(fileList, subfolder) {
+        const files = Array.from(fileList);
+        if (files.length === 0) return;
+
+        const newItems = files.map(f => ({
+          id: 'item_' + Math.random().toString(36).substr(2, 9),
+          file: f,
+          name: f.name,
+          size: f.size,
+          subfolder: subfolder || 'Inbox',
+          status: 'pending',
+          error: null,
+          notePath: null,
+        }));
+
+        this.queue.push(...newItems);
+        this.totalCount += newItems.length;
+
+        showToast(`📥 ${newItems.length} documento(s) agregado(s) a la cola de Obsidian`, 'info');
+        this.renderWidget();
+        this.processNext();
+      },
+
+      renderWidget() {
+        const widget = document.getElementById('obs-batch-widget');
+        const counter = document.getElementById('obs-batch-counter');
+        const progressBar = document.getElementById('obs-batch-progress-bar');
+        const statusText = document.getElementById('obs-batch-status-text');
+        const listEl = document.getElementById('obs-batch-items-list');
+
+        if (!widget) return;
+
+        if (this.totalCount === 0) {
+          widget.style.display = 'none';
+          return;
+        }
+
+        widget.style.display = 'block';
+        if (counter) counter.textContent = `${this.completedCount} / ${this.totalCount}`;
+
+        const pct = this.totalCount > 0 ? Math.round((this.completedCount / this.totalCount) * 100) : 0;
+        if (progressBar) progressBar.style.width = `${pct}%`;
+
+        if (statusText) {
+          if (this.isProcessing) {
+            statusText.textContent = `Procesando documentos con IA en segundo plano... (${pct}%)`;
+          } else if (this.completedCount === this.totalCount) {
+            statusText.textContent = `✅ Ingesta masiva completada: ${this.successCount} exitosos, ${this.errorCount} errores`;
+          }
+        }
+
+        if (listEl) {
+          listEl.innerHTML = this.queue.map(item => {
+            let badge = '<span style="color:var(--text-secondary);">⏳ En cola</span>';
+            if (item.status === 'processing') badge = '<span style="color:var(--accent);font-weight:600;">🔄 Procesando con IA...</span>';
+            if (item.status === 'success') badge = '<span style="color:var(--accent-green);font-weight:600;">✅ Completado</span>';
+            if (item.status === 'error') badge = `<span style="color:var(--accent-red);">❌ ${escapeHtml(item.error || 'Error')}</span>`;
+
+            return `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+                <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%;">📄 ${escapeHtml(item.name)} <small style="color:var(--text-secondary);">(${item.subfolder}/)</small></span>
+                ${badge}
+              </div>
+            `;
+          }).join('');
+        }
+      },
+
+      async processNext() {
+        if (this.isProcessing) return;
+
+        const nextItem = this.queue.find(i => i.status === 'pending');
+        if (!nextItem) {
+          this.isProcessing = false;
+          this.renderWidget();
+          if (this.totalCount > 0 && this.completedCount === this.totalCount) {
+            showToast(`🎉 ¡Ingesta completada! ${this.successCount} notas creadas en Obsidian Vault`, 'success');
+            loadObsidianVault();
+            setTimeout(() => {
+              if (!this.isProcessing && this.completedCount === this.totalCount) {
+                this.queue = [];
+                this.totalCount = 0;
+                this.completedCount = 0;
+                this.successCount = 0;
+                this.errorCount = 0;
+                this.renderWidget();
+              }
+            }, 8000);
+          }
+          return;
+        }
+
+        this.isProcessing = true;
+        nextItem.status = 'processing';
+        this.renderWidget();
+
+        const formData = new FormData();
+        formData.append('file', nextItem.file);
+        formData.append('subfolder', nextItem.subfolder);
+
+        try {
+          const resp = await fetch(`${getApiBase()}/api/obsidian/ingest`, {
+            method: 'POST',
+            headers: state.jwt ? { 'Authorization': `Bearer ${state.jwt}` } : {},
+            body: formData
+          });
+
+          if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({ detail: 'Error en la ingesta' }));
+            throw new Error(errData.detail || 'Error procesando archivo');
+          }
+
+          const res = await resp.json();
+          nextItem.status = 'success';
+          nextItem.notePath = res.vault_path;
+          this.successCount++;
+        } catch (e) {
+          nextItem.status = 'error';
+          nextItem.error = e.message;
+          this.errorCount++;
+        } finally {
+          this.completedCount++;
+          this.isProcessing = false;
+          this.renderWidget();
+          loadObsidianVault();
+          setTimeout(() => this.processNext(), 200);
+        }
+      }
+    };
+
+    function handleObsidianFileInput(input) {
       if (!input.files || input.files.length === 0) return;
-      const file = input.files[0];
-      await ingestFileToObsidian(file);
+      const subfolder = document.getElementById('obs-subfolder-select').value || 'Inbox';
+      obsidianQueueManager.addFiles(input.files, subfolder);
       input.value = '';
     }
 
-    async function ingestFileToObsidian(file) {
-      const statusEl = document.getElementById('obs-upload-status');
-      const subfolder = document.getElementById('obs-subfolder-select').value || 'Inbox';
-      if (!statusEl) return;
-      statusEl.style.display = 'block';
-      statusEl.style.color = 'var(--accent)';
-      statusEl.innerHTML = `⏳ Procesando <b>${escapeHtml(file.name)}</b> con IA...`;
+    function setupObsidianDragDrop() {
+      const dropZone = document.getElementById('obs-drop-zone');
+      if (!dropZone) return;
 
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('subfolder', subfolder);
+      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+      });
 
-      try {
-        const resp = await fetch(`${getApiBase()}/api/obsidian/ingest`, {
-          method: 'POST',
-          headers: state.jwt ? { 'Authorization': `Bearer ${state.jwt}` } : {},
-          body: formData
-        });
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+          dropZone.style.borderColor = 'var(--accent)';
+          dropZone.style.background = 'rgba(0,242,255,0.1)';
+        }, false);
+      });
 
-        if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({ detail: 'Error en la ingesta' }));
-          throw new Error(errData.detail || 'Error procesando archivo');
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+          dropZone.style.borderColor = 'rgba(0,242,255,0.3)';
+          dropZone.style.background = 'transparent';
+        }, false);
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files && files.length > 0) {
+          const subfolder = document.getElementById('obs-subfolder-select').value || 'Inbox';
+          obsidianQueueManager.addFiles(files, subfolder);
         }
-
-        const res = await resp.json();
-        statusEl.style.color = 'var(--accent-green)';
-        statusEl.innerHTML = `✅ <b>¡Nota guardada!</b> En <code>${escapeHtml(res.vault_path)}</code>`;
-        showToast(`Documento ${file.name} ingresado a Obsidian Vault`, 'success');
-        loadObsidianVault();
-        if (res.filename) {
-          viewObsidianNote(`${subfolder}/${res.filename}`);
-        }
-      } catch (e) {
-        statusEl.style.color = 'var(--accent-red)';
-        statusEl.innerHTML = `❌ Error: ${escapeHtml(e.message)}`;
-        showToast(e.message, 'error');
-      }
+      }, false);
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(setupObsidianDragDrop, 500);
+    });
 
 
     /* ═══════════════════════════════════════════════════════════════
