@@ -74,6 +74,8 @@ if _n8n_env and not _n8n_env.startswith(("http://", "https://")):
 N8N_BASE_URL: str = _n8n_env
 N8N_API_KEY: str = os.getenv("N8N_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip().rstrip("/")
 FRONTEND_DIR: str = os.getenv("FRONTEND_DIR", "/app/frontend")
 
 # Initialize Gemini
@@ -2124,13 +2126,40 @@ async def openclaw_unified_chat(body: OpenClawChatRequest):
     use_gemini = False
     gemini_model = "gemini-2.0-flash"
 
+async def _call_deepseek_api(messages: list[dict], system_prompt: str, model_name: str = "deepseek-chat") -> str:
+    """Call DeepSeek API using OpenAI-compatible chat completions endpoint."""
+    if not DEEPSEEK_API_KEY:
+        raise ValueError("DEEPSEEK_API_KEY no está configurada")
+    
+    payload_messages = [{"role": "system", "content": system_prompt}] + messages
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            f"{DEEPSEEK_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model_name,
+                "messages": payload_messages,
+                "stream": False,
+            },
+        )
+        if resp.status_code != 200:
+            raise ValueError(f"DeepSeek API error {resp.status_code}: {resp.text[:200]}")
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+
+
+    use_deepseek = False
+    deepseek_model = "deepseek-chat"
+
     # Force Gemini with @gemini prefix
     if user_msg.lower().startswith("@gemini"):
         user_msg_clean = user_msg[7:].strip()
-        conv["messages"][-1]["content"] = user_msg_clean  # update saved msg
+        conv["messages"][-1]["content"] = user_msg_clean
         body.messages[-1]["content"] = user_msg_clean
         use_gemini = True
-        # Pick model from prefix
         if user_msg.lower().startswith("@gemini-pro"):
             gemini_model = "gemini-2.5-pro"
             user_msg_clean = user_msg[11:].strip()
@@ -2141,12 +2170,24 @@ async def openclaw_unified_chat(body: OpenClawChatRequest):
             user_msg_clean = user_msg[12:].strip()
             conv["messages"][-1]["content"] = user_msg_clean
             body.messages[-1]["content"] = user_msg_clean
+    # Force DeepSeek with @deepseek or @deepseek-r1 prefix
+    elif user_msg.lower().startswith("@deepseek"):
+        use_gemini = False
+        use_deepseek = True
+        if user_msg.lower().startswith("@deepseek-r1") or user_msg.lower().startswith("@deepseek-reasoner"):
+            deepseek_model = "deepseek-reasoner"
+            user_msg_clean = user_msg[12:].strip() if user_msg.lower().startswith("@deepseek-r1") else user_msg[18:].strip()
+        else:
+            user_msg_clean = user_msg[9:].strip()
+        conv["messages"][-1]["content"] = user_msg_clean
+        body.messages[-1]["content"] = user_msg_clean
     # Force Llama with @llama prefix
     elif user_msg.lower().startswith("@llama"):
         user_msg_clean = user_msg[6:].strip()
         conv["messages"][-1]["content"] = user_msg_clean
         body.messages[-1]["content"] = user_msg_clean
         use_gemini = False
+        use_deepseek = False
     # Auto-detect: use Gemini for complex queries
     elif GEMINI_AVAILABLE and GEMINI_API_KEY:
         msg_len = len(user_msg)
@@ -2155,14 +2196,13 @@ async def openclaw_unified_chat(body: OpenClawChatRequest):
         if is_complex:
             use_gemini = True
 
-    # Route to Gemini
+    # 1. Route to Gemini (Nivel 1 Cloud)
     if use_gemini and GEMINI_AVAILABLE and GEMINI_API_KEY:
         try:
             model = genai.GenerativeModel(
                 model_name=gemini_model,
                 system_instruction=system_prompt,
             )
-            # Build history for Gemini
             history = conv.get("messages", [])[:-1]
             if len(history) > 20:
                 history = history[-20:]
@@ -2187,7 +2227,30 @@ async def openclaw_unified_chat(body: OpenClawChatRequest):
                 "done": True,
             })
         except Exception as e:
-            logger.warning(f"Gemini failed, falling back to Llama: {e}")
+            logger.warning(f"Gemini failed, trying DeepSeek / Llama: {e}")
+            use_deepseek = True
+
+    # 2. Route to DeepSeek (Nivel 2 Cloud Fallback)
+    if use_deepseek and DEEPSEEK_API_KEY:
+        try:
+            history = conv.get("messages", [])[:-1]
+            if len(history) > 20:
+                history = history[-20:]
+            response_text = await _call_deepseek_api(history + [body.messages[-1]], system_prompt, model_name=deepseek_model)
+
+            conv["messages"].append({"role": "assistant", "content": response_text})
+            _save_conversation(conv)
+
+            return JSONResponse(content={
+                "type": "ai",
+                "provider": "deepseek",
+                "model": deepseek_model,
+                "conversation_id": conv_id,
+                "message": {"role": "assistant", "content": response_text},
+                "done": True,
+            })
+        except Exception as e:
+            logger.warning(f"DeepSeek failed, falling back to Llama: {e}")
             # Fall through to Llama
 
     # 3. Llama (local) — default or fallback
