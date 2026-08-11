@@ -91,12 +91,20 @@ Create **multi-step pipelines** that chain AI models with system actions:
 - Start / Stop / Restart any container
 - View ports, images, and creation dates
 
+### 💎 Obsidian Vault & Document Ingestor
+- **AI Document Parser**: Converts `.pdf`, `.docx`, `.xlsx`, `.csv`, and `.txt` into clean Markdown notes with YAML frontmatter, tags, and AI-generated summaries.
+- **Interactive Web Viewer**: 2-column interface featuring note search, tree list, rendered Markdown viewer (`#tags`, `[[Wikilinks]]`, callouts `> [!INFO]`, tables), and raw mode toggle.
+- **Batch Processing Queue**: Drag-and-drop or select multiple documents at once. Ingestion runs asynchronously in background workers with an animated progress bar, item status badges, and toast notifications.
+
+### 🧠 3-Tier AI Engine & Fallback Chain
+- **Tier 1 (Cloud Primary)**: Google Gemini 2.5 Flash (`@gemini`) for ultra-fast, high-capacity analysis.
+- **Tier 2 (Cloud Fallback)**: DeepSeek V3 & DeepSeek R1 (`@deepseek`, `@deepseek-r1`) for deep reasoning and secondary cloud fallback.
+- **Tier 3 (Local Fallback)**: Ollama LLaMA 3.2 1B (`@llama`) for 100% offline, private local execution on server hardware.
+
 ### 🤖 OpenClaw AI Assistant
-- Unified chat interface with conversation memory
-- Auto-learning skills system
-- Built-in skills: weather, news, file search, disk status
-- Falls back to local LLM for general questions
-- Conversation history with persistence
+- Unified chat interface with conversation memory and auto-learning skills system.
+- Direct Obsidian Vault integration: `obsidian notas`, `obsidian buscar [texto]`, `obsidian leer [nota]`, `obsidian guardar [título]: [contenido]`.
+- Built-in skills: weather, news, file search, disk status, container management.
 
 ### 💻 Web Terminal
 - Full PTY terminal via WebSocket
