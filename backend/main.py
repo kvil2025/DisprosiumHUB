@@ -438,11 +438,59 @@ async def kill_process(pid: int, user: dict = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
-# Docker Management
+# Docker Management (Unix Socket + CLI Fallback)
 # ---------------------------------------------------------------------------
+def _format_docker_ports(ports_raw) -> str:
+    if not ports_raw:
+        return ""
+    if isinstance(ports_raw, str):
+        return ports_raw
+    formatted = []
+    for p in ports_raw:
+        if isinstance(p, dict):
+            pub = p.get("PublicPort")
+            priv = p.get("PrivatePort")
+            ptype = p.get("Type", "tcp")
+            ip = p.get("IP", "")
+            if pub:
+                formatted.append(f"{ip + ':' if ip else ''}{pub}->{priv}/{ptype}")
+            elif priv:
+                formatted.append(f"{priv}/{ptype}")
+    return ", ".join(formatted)
+
+
 @app.get("/api/docker")
 async def list_docker_containers():
-    """List all Docker containers."""
+    """List all Docker containers via Unix Socket API or CLI fallback."""
+    # 1. Try Docker Unix Socket API (/var/run/docker.sock)
+    socket_path = Path("/var/run/docker.sock")
+    if socket_path.exists():
+        try:
+            transport = httpx.AsyncHTTPTransport(uds=str(socket_path))
+            async with httpx.AsyncClient(transport=transport, timeout=10.0) as client:
+                resp = await client.get("http://localhost/containers/json?all=true")
+                if resp.status_code == 200:
+                    raw_containers = resp.json()
+                    containers = []
+                    for c in raw_containers:
+                        names = c.get("Names", [])
+                        clean_name = names[0].lstrip("/") if names else c.get("Id", "")[:12]
+                        created_ts = c.get("Created", 0)
+                        created_str = datetime.fromtimestamp(created_ts, timezone.utc).strftime("%Y-%m-%d %H:%M") if created_ts else ""
+                        containers.append({
+                            "id": c.get("Id", "")[:12],
+                            "name": clean_name,
+                            "image": c.get("Image", ""),
+                            "status": c.get("Status", ""),
+                            "state": c.get("State", ""),
+                            "ports": _format_docker_ports(c.get("Ports", [])),
+                            "created": created_str,
+                        })
+                    return {"containers": containers, "docker_available": True}
+        except Exception as exc:
+            logger.warning(f"Docker Unix Socket query failed, falling back to CLI: {exc}")
+
+    # 2. Fallback to CLI subprocess
     try:
         result = subprocess.run(
             ["docker", "ps", "-a", "--format", "{{json .}}"],
@@ -463,17 +511,15 @@ async def list_docker_containers():
             if line.strip():
                 try:
                     container = json.loads(line)
-                    containers.append(
-                        {
-                            "id": container.get("ID", ""),
-                            "name": container.get("Names", ""),
-                            "image": container.get("Image", ""),
-                            "status": container.get("Status", ""),
-                            "state": container.get("State", ""),
-                            "ports": container.get("Ports", ""),
-                            "created": container.get("CreatedAt", ""),
-                        }
-                    )
+                    containers.append({
+                        "id": container.get("ID", ""),
+                        "name": container.get("Names", ""),
+                        "image": container.get("Image", ""),
+                        "status": container.get("Status", ""),
+                        "state": container.get("State", ""),
+                        "ports": container.get("Ports", ""),
+                        "created": container.get("CreatedAt", ""),
+                    })
                 except json.JSONDecodeError:
                     continue
 
@@ -482,7 +528,7 @@ async def list_docker_containers():
     except FileNotFoundError:
         return {
             "containers": [],
-            "error": "Docker is not installed",
+            "error": "Docker socket or CLI not available",
             "docker_available": False,
         }
     except subprocess.TimeoutExpired:
@@ -506,6 +552,30 @@ async def docker_action(
             detail=f"Invalid action: {action}. Must be start, stop, or restart.",
         )
 
+    # 1. Try Docker Unix Socket API
+    socket_path = Path("/var/run/docker.sock")
+    if socket_path.exists():
+        try:
+            transport = httpx.AsyncHTTPTransport(uds=str(socket_path))
+            async with httpx.AsyncClient(transport=transport, timeout=30.0) as client:
+                resp = await client.post(f"http://localhost/containers/{name}/{action}")
+                if resp.status_code in (200, 204):
+                    logger.info("User %s triggered docker %s on %s via UDS", user.get("sub"), action, name)
+                    return {
+                        "status": "ok",
+                        "message": f"Container {name} {action}ed successfully",
+                        "container": name,
+                        "action": action,
+                    }
+                else:
+                    detail = resp.json().get("message", f"Failed to {action} container {name}")
+                    raise HTTPException(status_code=resp.status_code, detail=detail)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning(f"Docker UDS action failed, falling back to CLI: {exc}")
+
+    # 2. Subprocess CLI Fallback
     try:
         result = subprocess.run(
             ["docker", action, name],
@@ -519,6 +589,24 @@ async def docker_action(
                 status_code=500,
                 detail=result.stderr.strip() or f"Failed to {action} container {name}",
             )
+
+        logger.info("User %s triggered docker %s on %s via CLI", user.get("sub"), action, name)
+        return {
+            "status": "ok",
+            "message": f"Container {name} {action}ed successfully",
+            "container": name,
+            "action": action,
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Docker {action} command timed out for {name}",
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="Docker CLI or Socket not available",
+        )
 
         logger.info(
             "User %s performed %s on container %s", user.get("sub"), action, name
