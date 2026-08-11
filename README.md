@@ -335,7 +335,7 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 
 ## 👨‍💻 Author
 
-**Cristian Ávila Elgueta**
+**Cristian Avila Cisternas**
 - Geological Engineer | Full-Stack Developer | AI Systems Architect
 - 🏢 [GeologgIA](https://geologgia.cl) — Geological Intelligence
 - 🏢 [TECKNOLOGÍA](https://tecknologia.cl) — Technology Solutions
