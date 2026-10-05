@@ -1992,17 +1992,55 @@ async def run_single_step(body: RunStepRequest, user: dict = Depends(get_current
         return {"status": "error", "error": str(exc), "duration": duration}
 
 
-# ── Ollama Models ──
+# ── Unified Models Endpoint ──
+@app.get("/api/models")
 @app.get("/api/ollama/models")
-async def ollama_models():
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
+async def list_available_models():
+    """List all available models: Google Gemini (Cloud), Ollama (Local), and DeepSeek."""
+    cloud_models = []
+    if GEMINI_AVAILABLE and GEMINI_API_KEY:
+        cloud_models = [
+            {"name": "gemini-2.5-flash", "provider": "gemini", "label": "Gemini 2.5 Flash (Ultra Rápido)", "type": "cloud"},
+            {"name": "gemini-2.5-pro", "provider": "gemini", "label": "Gemini 2.5 Pro (Razonamiento)", "type": "cloud"},
+            {"name": "gemini-2.5-flash-lite", "provider": "gemini", "label": "Gemini 2.5 Flash Lite (Ligero)", "type": "cloud"},
+        ]
+
+    local_models = []
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
             resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
-            return resp.json()
-        except httpx.ConnectError:
-            return {"models": [], "error": "Ollama is not running", "ollama_available": False}
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Ollama error: {exc}")
+            if resp.status_code == 200:
+                data = resp.json()
+                for m in data.get("models", []):
+                    m_name = m.get("name") or m.get("model")
+                    if m_name:
+                        local_models.append({
+                            "name": m_name,
+                            "provider": "ollama",
+                            "label": f"{m_name} (Local)",
+                            "type": "local",
+                            "size": m.get("size", 0),
+                            "details": m.get("details", {}),
+                        })
+    except Exception as exc:
+        logger.warning(f"Ollama tags check failed: {exc}")
+
+    deepseek_models = []
+    if DEEPSEEK_API_KEY:
+        deepseek_models = [
+            {"name": "deepseek-chat", "provider": "deepseek", "label": "DeepSeek V3 (Chat)", "type": "cloud"},
+            {"name": "deepseek-reasoner", "provider": "deepseek", "label": "DeepSeek R1 (Reasoner)", "type": "cloud"},
+        ]
+
+    all_models = cloud_models + local_models + deepseek_models
+    return {
+        "models": all_models,
+        "cloud": cloud_models,
+        "local": local_models,
+        "deepseek": deepseek_models,
+        "gemini_available": bool(GEMINI_API_KEY),
+        "ollama_available": len(local_models) > 0,
+    }
 
 
 # ── Ollama Running Models (ps) ──
@@ -2166,6 +2204,31 @@ async def ollama_pull_model(body: OllamaPullRequest, user: dict = Depends(get_cu
     )
 
 
+async def _call_deepseek_api(messages: list[dict], system_prompt: str, model_name: str = "deepseek-chat") -> str:
+    """Call DeepSeek API using OpenAI-compatible chat completions endpoint."""
+    if not DEEPSEEK_API_KEY:
+        raise ValueError("DEEPSEEK_API_KEY no está configurada")
+    
+    payload_messages = [{"role": "system", "content": system_prompt}] + messages
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            f"{DEEPSEEK_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model_name,
+                "messages": payload_messages,
+                "stream": False,
+            },
+        )
+        if resp.status_code != 200:
+            raise ValueError(f"DeepSeek API error {resp.status_code}: {resp.text[:200]}")
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+
+
 # ── Unified Chat Endpoint ──
 class OpenClawChatRequest(BaseModel):
     model: str = "llama3.2:1b"
@@ -2212,38 +2275,19 @@ async def openclaw_unified_chat(body: OpenClawChatRequest):
 
     # Determine which AI to use
     use_gemini = False
-    gemini_model = "gemini-2.0-flash"
-
-async def _call_deepseek_api(messages: list[dict], system_prompt: str, model_name: str = "deepseek-chat") -> str:
-    """Call DeepSeek API using OpenAI-compatible chat completions endpoint."""
-    if not DEEPSEEK_API_KEY:
-        raise ValueError("DEEPSEEK_API_KEY no está configurada")
-    
-    payload_messages = [{"role": "system", "content": system_prompt}] + messages
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{DEEPSEEK_BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model_name,
-                "messages": payload_messages,
-                "stream": False,
-            },
-        )
-        if resp.status_code != 200:
-            raise ValueError(f"DeepSeek API error {resp.status_code}: {resp.text[:200]}")
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-
-
+    gemini_model = "gemini-2.5-flash"
     use_deepseek = False
     deepseek_model = "deepseek-chat"
 
+    # Explicit model selection from UI dropdown
+    if body.model and (body.model.startswith("gemini-") or body.model.startswith("gemini")):
+        use_gemini = True
+        gemini_model = body.model
+    elif body.model and (body.model.startswith("deepseek-") or body.model.startswith("deepseek")):
+        use_deepseek = True
+        deepseek_model = body.model
     # Force Gemini with @gemini prefix
-    if user_msg.lower().startswith("@gemini"):
+    elif user_msg.lower().startswith("@gemini"):
         user_msg_clean = user_msg[7:].strip()
         conv["messages"][-1]["content"] = user_msg_clean
         body.messages[-1]["content"] = user_msg_clean
@@ -2254,7 +2298,7 @@ async def _call_deepseek_api(messages: list[dict], system_prompt: str, model_nam
             conv["messages"][-1]["content"] = user_msg_clean
             body.messages[-1]["content"] = user_msg_clean
         elif user_msg.lower().startswith("@gemini-nano") or user_msg.lower().startswith("@gemini-lite"):
-            gemini_model = "gemini-2.0-flash-lite"
+            gemini_model = "gemini-2.5-flash-lite"
             user_msg_clean = user_msg[12:].strip()
             conv["messages"][-1]["content"] = user_msg_clean
             body.messages[-1]["content"] = user_msg_clean
@@ -2276,13 +2320,14 @@ async def _call_deepseek_api(messages: list[dict], system_prompt: str, model_nam
         body.messages[-1]["content"] = user_msg_clean
         use_gemini = False
         use_deepseek = False
-    # Auto-detect: use Gemini for complex queries
+    # Auto-detect: use Gemini for complex queries if Gemini is configured
     elif GEMINI_AVAILABLE and GEMINI_API_KEY:
         msg_len = len(user_msg)
         complex_keywords = ["explica", "analiza", "compara", "resume", "genera", "escribe", "código", "codigo", "programa", "script", "plan", "estrategia", "informe", "reporte", "investiga", "traduce", "corrige"]
         is_complex = msg_len > 100 or any(kw in user_msg.lower() for kw in complex_keywords)
         if is_complex:
             use_gemini = True
+            gemini_model = "gemini-2.5-flash"
 
     # 1. Route to Gemini (Nivel 1 Cloud)
     if use_gemini and GEMINI_AVAILABLE and GEMINI_API_KEY:

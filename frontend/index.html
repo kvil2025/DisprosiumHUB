@@ -2853,6 +2853,7 @@
       updateUserUI();
       navigateTo('dashboard');
       startDashboardPolling();
+      loadChatModels();
     }
 
     function updateUserUI() {
@@ -3266,28 +3267,76 @@
        CHAT IA
     ═══════════════════════════════════════════════════════════════ */
     async function loadChatModels() {
+      const selector = document.getElementById('model-selector');
+      if (!selector) return;
+
       try {
-        const resp = await apiFetch('/api/ollama/models');
-        if (!resp.ok) throw new Error('Failed');
+        const resp = await apiFetch('/api/models');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
         const data = await resp.json();
-        const models = Array.isArray(data) ? data : (data.models || []);
+        let html = '';
 
-        const selector = document.getElementById('model-selector');
-        selector.innerHTML = models.map(m => {
-          const name = typeof m === 'string' ? m : (m.name || m.model || '');
-          return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
-        }).join('');
-
-        if (models.length === 0) {
-          selector.innerHTML = '<option value="">No hay modelos disponibles</option>';
+        if (data.cloud && data.cloud.length > 0) {
+          html += '<optgroup label="☁️ Google Gemini (Cloud)">';
+          data.cloud.forEach(m => {
+            html += `<option value="${escapeHtml(m.name)}">${escapeHtml(m.label || m.name)}</option>`;
+          });
+          html += '</optgroup>';
         }
 
-        // Also check loaded models count
+        if (data.local && data.local.length > 0) {
+          html += '<optgroup label="🏠 Ollama (Local)">';
+          data.local.forEach(m => {
+            html += `<option value="${escapeHtml(m.name)}">${escapeHtml(m.label || m.name)}</option>`;
+          });
+          html += '</optgroup>';
+        }
+
+        if (data.deepseek && data.deepseek.length > 0) {
+          html += '<optgroup label="🧠 DeepSeek (Cloud)">';
+          data.deepseek.forEach(m => {
+            html += `<option value="${escapeHtml(m.name)}">${escapeHtml(m.label || m.name)}</option>`;
+          });
+          html += '</optgroup>';
+        }
+
+        if (!html && data.models && data.models.length > 0) {
+          html = data.models.map(m => {
+            const name = typeof m === 'string' ? m : (m.name || m.model || '');
+            return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+          }).join('');
+        }
+
+        if (!html) {
+          html = `
+            <optgroup label="☁️ Google Gemini (Default)">
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+            </optgroup>
+            <optgroup label="🏠 Local (Default)">
+              <option value="llama3.2:1b">llama3.2:1b</option>
+            </optgroup>
+          `;
+        }
+
+        selector.innerHTML = html;
+        if (!selector.value) {
+          selector.value = 'gemini-2.5-flash';
+        }
         refreshMemoryCount();
       } catch (err) {
-        document.getElementById('model-selector').innerHTML =
-          '<option value="">Error al cargar modelos</option>';
+        console.warn('Error loading models, using fallback list:', err);
+        selector.innerHTML = `
+          <optgroup label="☁️ Google Gemini">
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+          </optgroup>
+          <optgroup label="🏠 Local Ollama">
+            <option value="llama3.2:1b">llama3.2:1b</option>
+          </optgroup>
+        `;
+        selector.value = 'gemini-2.5-flash';
       }
     }
 
@@ -3656,11 +3705,26 @@
         // Check if it's a JSON response (skill or Gemini)
         const contentType = resp.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
-          const data = await resp.json();
+          let data = null;
+          try {
+            data = await resp.json();
+          } catch (jsonErr) {
+            console.warn('Error parsing JSON:', jsonErr);
+          }
+
+          if (!data || typeof data !== 'object') {
+            throw new Error('Respuesta inválida del servidor');
+          }
+
           if (data.conversation_id) {
             state.conversationId = data.conversation_id;
-            document.getElementById('conv-status').textContent = '💾 Guardada';
+            const convSt = document.getElementById('conv-status');
+            if (convSt) convSt.textContent = '💾 Guardada';
             loadConversations();
+          }
+
+          if (data.error && !data.message) {
+            throw new Error(data.error);
           }
 
           // Gemini AI response (non-streaming)
